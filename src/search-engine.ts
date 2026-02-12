@@ -77,17 +77,17 @@ export class SearchEngine {
                 return { results, engine: approach.name };
               }
               
-              // If this is the last engine or quality is acceptable, prepare to return
-              if (i === approaches.length - 1) {
-                if (bestQuality >= qualityThreshold || !enableQualityCheck) {
-                  console.log(`[SearchEngine] Using best results from ${bestEngine} (quality: ${bestQuality.toFixed(2)})`);
-                  return { results: bestResults, engine: bestEngine };
-                } else if (bestResults.length > 0) {
-                  console.log(`[SearchEngine] Warning: Low quality results from all engines, using best available from ${bestEngine}`);
-                  return { results: bestResults, engine: bestEngine };
-                }
-              } else {
-                console.log(`[SearchEngine] ${approach.name} results quality: ${qualityScore.toFixed(2)}, continuing to try other engines...`);
+              console.log(`[SearchEngine] ${approach.name} results quality: ${qualityScore.toFixed(2)}, continuing to try other engines...`);
+            }
+            
+            // If this is the last engine, return best available results even if quality is low
+            if (i === approaches.length - 1) {
+              if (bestQuality >= qualityThreshold || !enableQualityCheck) {
+                console.log(`[SearchEngine] Using best results from ${bestEngine} (quality: ${bestQuality.toFixed(2)})`);
+                return { results: bestResults, engine: bestEngine };
+              } else if (bestResults.length > 0) {
+                console.log(`[SearchEngine] Warning: Low quality results from all engines, using best available from ${bestEngine} (quality: ${bestQuality.toFixed(2)})`);
+                return { results: bestResults, engine: bestEngine };
               }
             }
           } catch (error) {

@@ -27,7 +27,8 @@ export class EnhancedContentExtractor {
     this.browserPool = new BrowserPool();
     this.fallbackThreshold = parseInt(process.env.BROWSER_FALLBACK_THRESHOLD || '3', 10);
     
-    console.log(`[EnhancedContentExtractor] Configuration: timeout=${this.defaultTimeout}, maxContentLength=${this.maxContentLength}, fallbackThreshold=${this.fallbackThreshold}`);
+    // Suppress startup logs for MCP servers
+    // console.log(`[EnhancedContentExtractor] Configuration: timeout=${this.defaultTimeout}, maxContentLength=${this.maxContentLength}, fallbackThreshold=${this.fallbackThreshold}`);
   }
 
   async extractContent(options: ContentExtractionOptions): Promise<string> {

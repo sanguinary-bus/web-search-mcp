@@ -17,7 +17,8 @@ export class BrowserPool {
     const browserTypesEnv = process.env.BROWSER_TYPES || 'chromium,firefox';
     this.browserTypes = browserTypesEnv.split(',').map(type => type.trim());
     
-    console.log(`[BrowserPool] Configuration: maxBrowsers=${this.maxBrowsers}, headless=${this.headless}, types=${this.browserTypes.join(',')}`);
+    // Suppress startup logs for MCP servers
+    // console.log(`[BrowserPool] Configuration: maxBrowsers=${this.maxBrowsers}, headless=${this.headless}, types=${this.browserTypes.join(',')}`);
   }
 
   async getBrowser(): Promise<Browser> {
