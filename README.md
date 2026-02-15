@@ -4,25 +4,30 @@ A TypeScript MCP (Model Context Protocol) server that provides comprehensive web
 
 ## Features
 
-- **Multi-Engine Web Search**: Prioritises Bing > Brave > DuckDuckGo for optimal reliability and performance
+- **Multi-Engine Web Search**: 7 search engines in fallback order: Bing → Brave → Startpage → Qwant → Yahoo → Ecosia → DuckDuckGo
 - **Full Page Content Extraction**: Fetches and extracts complete page content from search results
 - **Multiple Search Tools**: Three specialised tools for different use cases
-- **Smart Request Strategy**: Switches between playwright browesrs and fast axios requests to ensure results are returned
+- **Smart Request Strategy**: Switches between Playwright browsers and fast axios requests to ensure results are returned
 - **Concurrent Processing**: Extracts content from multiple pages simultaneously
+- **Minimal Logging**: Efficient KB-based logging with optional debug mode
 
 ## How It Works
 
 The server provides three specialised tools for different web search needs:
 
 ### 1. `full-web-search` (Main Tool)
-When a comprehensive search is requested, the server uses an **optimised search strategy**:
+When a comprehensive search is requested, the server uses an **optimised 7-engine search strategy**:
 1. **Browser-based Bing Search** - Primary method using dedicated Chromium instance
 2. **Browser-based Brave Search** - Secondary option using dedicated Firefox instance
-3. **Axios DuckDuckGo Search** - Final fallback using traditional HTTP
-4. **Dedicated browser isolation**: Each search engine gets its own browser instance with automatic cleanup
-5. **Content extraction**: Tries axios first, then falls back to browser with human behavior simulation
-6. **Concurrent processing**: Extracts content from multiple pages simultaneously with timeout protection
-7. **HTTP/2 error recovery**: Automatically falls back to HTTP/1.1 when protocol errors occur
+3. **Browser-based Startpage Search** - Uses Google results, privacy-focused, Chromium instance
+4. **Browser-based Qwant Search** - European search engine, good for multilingual queries, Chromium instance
+5. **Browser-based Yahoo Search** - Traditional search engine, Chromium instance
+6. **Browser-based Ecosia Search** - Tree-planting focused, uses Bing results, Chromium instance
+7. **Axios DuckDuckGo Search** - Final fallback using traditional HTTP
+8. **Dedicated browser isolation**: Each search engine gets its own browser instance with automatic cleanup
+9. **Content extraction**: Tries axios first, then falls back to browser with human behavior simulation
+10. **Concurrent processing**: Extracts content from multiple pages simultaneously with timeout protection
+11. **HTTP/2 error recovery**: Automatically falls back to HTTP/1.1 when protocol errors occur
 
 ### 2. `get-web-search-summaries` (Lightweight Alternative)
 For quick search results without full content extraction:
@@ -199,7 +204,23 @@ The server supports several environment variables for configuration:
 - **`ENABLE_RELEVANCE_CHECKING`**: Enable/disable search result quality validation (default: true)
 - **`RELEVANCE_THRESHOLD`**: Minimum quality score for search results (0.0-1.0, default: 0.3)
 - **`FORCE_MULTI_ENGINE_SEARCH`**: Try all search engines and return best results (default: false)
+
+### Debug and Logging
+
 - **`DEBUG_BROWSER_LIFECYCLE`**: Enable detailed browser lifecycle logging for debugging (default: false)
+- **`DEBUG_HTML_PARSING`**: Enable verbose HTML parsing logs for Brave, Yahoo, Startpage, Qwant, Ecosia (default: false)
+- **`DEBUG_BING_SEARCH`**: Enable detailed Bing search debugging logs (default: false)
+- **`DEBUG_SAVE_HTML`**: Save raw HTML responses to `logs/html-debug/` directory for inspection (default: false)
+
+**Note:** Logging automatically uses KB format (e.g., "Parsing HTML (732.4KB)") instead of character counts to reduce log file size.
+
+**HTML Debugging:** When `DEBUG_SAVE_HTML=true`, each search engine's HTML response is saved to:
+```
+logs/html-debug/TIMESTAMP_EngineName_QuerySnippet.html
+```
+Example: `2026-02-15T12-34-56-789Z_Brave_rust_programming.html`
+
+This is useful for diagnosing parsing issues or bot detection pages.
 
 ## Troubleshooting
 
@@ -214,6 +235,29 @@ The server supports several environment variables for configuration:
 - **Try headless mode**: Ensure `BROWSER_HEADLESS=true` (default) for server environments
 - **Network restrictions**: Some networks block browser automation - try different network or VPN
 - **HTTP/2 issues**: The server automatically handles HTTP/2 protocol errors with fallback to HTTP/1.1
+
+### Debugging Search Issues
+To diagnose why searches return 0 results or fail:
+
+1. **Enable HTML debugging:**
+   ```json
+   {
+     "mcpServers": {
+       "web-search": {
+         "command": "node",
+         "args": ["/path/to/web-search-mcp/dist/index.js"],
+         "env": {
+           "DEBUG_SAVE_HTML": "true",
+           "DEBUG_HTML_PARSING": "true"
+         }
+       }
+     }
+   }
+   ```
+
+2. **Check saved HTML files** in `logs/html-debug/` directory
+3. **Look for:** CAPTCHA pages, bot detection, blocked access, or empty results
+4. **Inspect logs** in `logs/server.log` for parsing errors
 
 ### Search Quality Issues
 - **Enable quality checking**: Set `ENABLE_RELEVANCE_CHECKING=true` (enabled by default)

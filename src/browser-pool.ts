@@ -1,4 +1,11 @@
-import { chromium, firefox, webkit, Browser } from 'playwright';
+import { chromium, firefox, webkit } from 'playwright-extra';
+import type { Browser } from 'playwright';
+import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+
+// Apply stealth plugin to all browser types
+chromium.use(StealthPlugin());
+firefox.use(StealthPlugin());
+webkit.use(StealthPlugin());
 
 export class BrowserPool {
   private browsers: Map<string, Browser> = new Map();

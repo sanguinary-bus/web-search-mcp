@@ -3,12 +3,38 @@ import * as cheerio from 'cheerio';
 import { SearchOptions, SearchResult, SearchResultWithMetadata } from './types.js';
 import { generateTimestamp, sanitizeQuery } from './utils.js';
 import { BrowserPool } from './browser-pool.js';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export class SearchEngine {
   private browserPool: BrowserPool;
 
   constructor() {
     this.browserPool = new BrowserPool();
+  }
+
+  // Stealth is now automatically applied via playwright-extra's stealth plugin in browser-pool.ts
+
+  private debugSaveHtml(html: string, engineName: string, query: string): void {
+    // Temporarily always save HTML for debugging
+    // if (process.env.DEBUG_SAVE_HTML !== 'true') return;
+    
+    try {
+      const debugDir = path.join(process.cwd(), 'logs', 'html-debug');
+      if (!fs.existsSync(debugDir)) {
+        fs.mkdirSync(debugDir, { recursive: true });
+      }
+      
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const sanitizedQuery = query.substring(0, 30).replace(/[^a-zA-Z0-9]/g, '_');
+      const filename = `${timestamp}_${engineName}_${sanitizedQuery}.html`;
+      const filepath = path.join(debugDir, filename);
+      
+      fs.writeFileSync(filepath, html, 'utf-8');
+      console.log(`[SearchEngine] DEBUG: Saved HTML to ${filepath} (${(html.length / 1024).toFixed(1)}KB)`);
+    } catch (error) {
+      console.error(`[SearchEngine] Failed to save debug HTML:`, error);
+    }
   }
 
   async search(options: SearchOptions): Promise<SearchResultWithMetadata> {
@@ -28,11 +54,21 @@ export class SearchEngine {
         
         console.log(`[SearchEngine] Quality checking: ${enableQualityCheck}, threshold: ${qualityThreshold}, multi-engine: ${forceMultiEngine}, debug: ${debugBrowsers}`);
 
-        // Try multiple approaches to get search results, starting with most reliable
+        // Try multiple approaches to get search results, prioritizing working browser engines with stealth
         const approaches = [
+          { method: this.tryMojeekSearch.bind(this), name: 'Browser Mojeek' },
+          { method: this.tryYahooSearch.bind(this), name: 'Browser Yahoo' },
+          { method: this.tryEcosiaSearch.bind(this), name: 'Browser Ecosia' },
+          { method: this.trySearxSearch.bind(this), name: 'Browser Searx' },
+          { method: this.trySwisscowsSearch.bind(this), name: 'Browser Swisscows' },
+          { method: this.tryHttpBingSearch.bind(this), name: 'HTTP Bing' },
+          { method: this.tryHttpStartpageSearch.bind(this), name: 'HTTP Startpage' },
+          { method: this.tryHttpQwantSearch.bind(this), name: 'HTTP Qwant' },
+          { method: this.tryDuckDuckGoSearch.bind(this), name: 'HTTP DuckDuckGo' },
           { method: this.tryBrowserBingSearch.bind(this), name: 'Browser Bing' },
           { method: this.tryBrowserBraveSearch.bind(this), name: 'Browser Brave' },
-          { method: this.tryDuckDuckGoSearch.bind(this), name: 'Axios DuckDuckGo' }
+          { method: this.tryStartpageSearch.bind(this), name: 'Browser Startpage' },
+          { method: this.tryQwantSearch.bind(this), name: 'Browser Qwant' }
         ];
         
         let bestResults: SearchResult[] = [];
@@ -166,6 +202,14 @@ export class SearchEngine {
         viewport: { width: 1366, height: 768 },
         locale: 'en-US',
         timezoneId: 'America/New_York',
+        extraHTTPHeaders: {
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'DNT': '1',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1'
+        }
       });
 
       try {
@@ -176,15 +220,37 @@ export class SearchEngine {
         console.log(`[SearchEngine] Browser navigating to Brave: ${searchUrl}`);
         
         await page.goto(searchUrl, { 
-          waitUntil: 'domcontentloaded',
+          waitUntil: 'networkidle',  // Changed from domcontentloaded to networkidle for better JS execution
           timeout: timeout
         });
 
-        // Wait for search results to load
-        try {
-          await page.waitForSelector('[data-type="web"]', { timeout: 3000 });
-        } catch {
-          console.log(`[SearchEngine] Browser Brave results selector not found, proceeding anyway`);
+        // Wait a bit for JavaScript to fully execute and render results
+        await page.waitForTimeout(1500);
+
+        // Try multiple selectors to wait for results
+        const possibleSelectors = [
+          '[data-type="web"]',
+          'div[data-pos]',
+          '#results',
+          '.snippet',
+          'article',
+          'a[href^="http"]'  // Fallback: any external link
+        ];
+        
+        let selectorFound = false;
+        for (const selector of possibleSelectors) {
+          try {
+            await page.waitForSelector(selector, { timeout: 2000 });
+            console.log(`[SearchEngine] Brave found selector: ${selector}`);
+            selectorFound = true;
+            break;
+          } catch {
+            // Continue to next selector
+          }
+        }
+        
+        if (!selectorFound) {
+          console.log(`[SearchEngine] Brave WARNING: No result selectors found, proceeding with HTML parsing anyway`);
         }
 
         // Get the page content
@@ -410,6 +476,7 @@ export class SearchEngine {
 
     const html = await page.content();
     console.error(`[SearchEngine] BING: Got page HTML with length: ${html.length} characters`);
+    this.debugSaveHtml(html, 'Bing-Enhanced', query);
     
     if (debugBing && html.length < 10000) {
       console.error(`[SearchEngine] BING: WARNING - HTML seems short, possible bot detection or error page`);
@@ -463,6 +530,7 @@ export class SearchEngine {
 
     const html = await page.content();
     console.error(`[SearchEngine] BING: Got page HTML with length: ${html.length} characters`);
+    this.debugSaveHtml(html, 'Bing-Direct', query);
     
     if (debugBing && html.length < 10000) {
       console.error(`[SearchEngine] BING: WARNING - HTML seems short, possible bot detection or error page`);
@@ -516,6 +584,7 @@ export class SearchEngine {
       });
 
       console.log(`[SearchEngine] DuckDuckGo got response with status: ${response.status}`);
+      this.debugSaveHtml(response.data, 'DuckDuckGo', query);
       
       const results = this.parseDuckDuckGoResults(response.data, numResults);
       console.log(`[SearchEngine] DuckDuckGo parsed ${results.length} results`);
@@ -524,6 +593,112 @@ export class SearchEngine {
     } catch {
       console.error(`[SearchEngine] DuckDuckGo search failed`);
       throw new Error('DuckDuckGo search failed');
+    }
+  }
+
+  private async tryHttpBingSearch(query: string, numResults: number, timeout: number): Promise<SearchResult[]> {
+    console.log(`[SearchEngine] Trying HTTP-based Bing search...`);
+    
+    try {
+      const response = await axios.get('https://www.bing.com/search', {
+        params: {
+          q: query,
+        },
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'DNT': '1',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+        },
+        timeout,
+        validateStatus: (status: number) => status < 400,
+      });
+
+      console.log(`[SearchEngine] HTTP Bing got response with status: ${response.status}`);
+      this.debugSaveHtml(response.data, 'HTTP-Bing', query);
+      
+      const results = this.parseHttpBingResults(response.data, numResults);
+      console.log(`[SearchEngine] HTTP Bing parsed ${results.length} results`);
+      
+      return results;
+    } catch (error) {
+      console.error(`[SearchEngine] HTTP Bing search failed:`, error instanceof Error ? error.message : String(error));
+      throw new Error('HTTP Bing search failed');
+    }
+  }
+
+  private async tryHttpStartpageSearch(query: string, numResults: number, timeout: number): Promise<SearchResult[]> {
+    console.log(`[SearchEngine] Trying HTTP-based Startpage search...`);
+    
+    try {
+      const response = await axios.get('https://www.startpage.com/sp/search', {
+        params: {
+          query: query,
+        },
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'DNT': '1',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1',
+        },
+        timeout,
+        validateStatus: (status: number) => status < 400,
+      });
+
+      console.log(`[SearchEngine] HTTP Startpage got response with status: ${response.status}`);
+      this.debugSaveHtml(response.data, 'HTTP-Startpage', query);
+      
+      const results = this.parseHttpStartpageResults(response.data, numResults);
+      console.log(`[SearchEngine] HTTP Startpage parsed ${results.length} results`);
+      
+      return results;
+    } catch (error) {
+      console.error(`[SearchEngine] HTTP Startpage search failed:`, error instanceof Error ? error.message : String(error));
+      throw new Error('HTTP Startpage search failed');
+    }
+  }
+
+  private async tryHttpQwantSearch(query: string, numResults: number, timeout: number): Promise<SearchResult[]> {
+    console.log(`[SearchEngine] Trying HTTP-based Qwant search...`);
+    
+    try {
+      const response = await axios.get('https://www.qwant.com/', {
+        params: {
+          q: query,
+          t: 'web',
+        },
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'DNT': '1',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1',
+        },
+        timeout,
+        validateStatus: (status: number) => status < 400,
+      });
+
+      console.log(`[SearchEngine] HTTP Qwant got response with status: ${response.status}`);
+      this.debugSaveHtml(response.data, 'HTTP-Qwant', query);
+      
+      const results = this.parseHttpQwantResults(response.data, numResults);
+      console.log(`[SearchEngine] HTTP Qwant parsed ${results.length} results`);
+      
+      return results;
+    } catch (error) {
+      console.error(`[SearchEngine] HTTP Qwant search failed:`, error instanceof Error ? error.message : String(error));
+      throw new Error('HTTP Qwant search failed');
     }
   }
 
@@ -674,40 +849,70 @@ export class SearchEngine {
   }
 
   private parseBraveResults(html: string, maxResults: number): SearchResult[] {
-    console.log(`[SearchEngine] Parsing Brave HTML with length: ${html.length}`);
+    const debug = process.env.DEBUG_HTML_PARSING === 'true';
+    console.log(`[SearchEngine] Parsing Brave HTML (${(html.length / 1024).toFixed(1)}KB)`);
     
     const $ = cheerio.load(html);
     const results: SearchResult[] = [];
     const timestamp = generateTimestamp();
 
-    // Brave result selectors
+    // Check page structure
+    const pageTitle = $('title').text();
+    if (debug) console.log(`[SearchEngine] Brave page title: "${pageTitle}"`);
+    
+    // Check for bot detection, CAPTCHA, or error pages
+    if (pageTitle.toLowerCase().includes('captcha') || 
+        pageTitle.toLowerCase().includes('blocked') ||
+        pageTitle.toLowerCase().includes('access denied') ||
+        html.includes('cf-browser-verification') ||
+        html.includes('challenge-platform')) {
+      console.log(`[SearchEngine] Brave ERROR: Bot detection or CAPTCHA detected`);
+      return results;
+    }
+
+    // Comprehensive Brave result selectors (2024-2026 versions)
     const resultSelectors = [
-      '[data-type="web"]',     // Main Brave results
-      '.result',               // Alternative format
-      '.fdb'                   // Brave specific format
+      // Modern Brave selectors
+      'div[data-type="web"]',
+      'div[data-pos]',
+      '#results > div',
+      '.snippet',
+      '.result',
+      '.fdb',
+      // Generic article/result containers
+      'article',
+      '[role="article"]',
+      '.card',
+      '.search-result',
+      // Older Brave formats
+      '.web-result',
+      '.result-item'
     ];
     
-    let foundResults = false;
-    
     for (const selector of resultSelectors) {
-      if (foundResults && results.length >= maxResults) break;
+      if (results.length >= maxResults) break;
       
-      console.log(`[SearchEngine] Trying Brave selector: ${selector}`);
       const elements = $(selector);
-      console.log(`[SearchEngine] Found ${elements.length} elements with selector ${selector}`);
+      if (debug && elements.length > 0) {
+        console.log(`[SearchEngine] Brave selector "${selector}" found ${elements.length} elements`);
+      }
       
       elements.each((_index, element) => {
         if (results.length >= maxResults) return false;
 
         const $element = $(element);
         
-        // Try multiple title selectors for Brave
+        // Comprehensive title selectors
         const titleSelectors = [
-          '.title a',              // Brave specific
-          'h2 a',                  // Common format  
-          '.result-title a',       // Alternative format
-          'a[href*="://"]',        // Any external link
-          '.snippet-title a'       // Snippet title
+          'a[data-testid="result-title"]',
+          'h2 a',
+          'h3 a',
+          '.title a',
+          '.result-title a',
+          'a[href*="://"]',
+          'a.result-header',
+          'div[class*="title"] a',
+          'a[class*="title"]'
         ];
         
         let title = '';
@@ -718,29 +923,23 @@ export class SearchEngine {
           if ($titleElement.length) {
             title = $titleElement.text().trim();
             url = $titleElement.attr('href') || '';
-            console.log(`[SearchEngine] Brave found title with ${titleSelector}: "${title}"`);
             if (title && url && url.startsWith('http')) {
+              console.log(`[SearchEngine] Brave found with ${titleSelector}: "${title.substring(0, 50)}..." -> "${url.substring(0, 60)}..."`);
               break;
             }
           }
         }
         
-        // If still no title, try getting it from any text content
-        if (!title) {
-          const textContent = $element.text().trim();
-          const lines = textContent.split('\n').filter(line => line.trim().length > 0);
-          if (lines.length > 0) {
-            title = lines[0].trim();
-            console.log(`[SearchEngine] Brave found title from text content: "${title}"`);
-          }
-        }
-        
-        // Try multiple snippet selectors for Brave
+        // Comprehensive snippet selectors
         const snippetSelectors = [
-          '.snippet-content',      // Brave specific
-          '.snippet',              // Generic
-          '.description',          // Alternative
-          'p'                      // Fallback paragraph
+          '[data-testid="result-description"]',
+          '.snippet-content',
+          '.snippet-description',
+          '.snippet',
+          '.description',
+          'p[class*="description"]',
+          'div[class*="description"]',
+          'p'
         ];
         
         let snippet = '';
@@ -748,12 +947,11 @@ export class SearchEngine {
           const $snippetElement = $element.find(snippetSelector).first();
           if ($snippetElement.length) {
             snippet = $snippetElement.text().trim();
-            break;
+            if (snippet.length > 20) break;
           }
         }
         
         if (title && url && this.isValidSearchUrl(url)) {
-          console.log(`[SearchEngine] Brave found: "${title}" -> "${url}"`);
           results.push({
             title,
             url: this.cleanBraveUrl(url),
@@ -764,7 +962,59 @@ export class SearchEngine {
             timestamp,
             fetchStatus: 'success',
           });
-          foundResults = true;
+        }
+      });
+      
+      if (results.length > 0) {
+        console.log(`[SearchEngine] Brave selector "${selector}" found ${results.length} results, stopping search`);
+        break;
+      }
+    }
+
+    // Ultimate fallback: Look for ANY external links with reasonable structure
+    if (results.length === 0) {
+      console.log(`[SearchEngine] Brave fallback: Looking for any external links...`);
+      
+      $('a[href^="http"]').each((_index, element) => {
+        if (results.length >= maxResults) return false;
+        
+        const $link = $(element);
+        const url = $link.attr('href') || '';
+        let title = $link.text().trim();
+        
+        // Skip if it's Brave's own domain or common assets
+        if (url.includes('brave.com') || url.includes('.css') || url.includes('.js') || url.includes('.png')) {
+          return;
+        }
+        
+        // Find nearby description
+        let snippet = '';
+        const $parent = $link.parent().parent();
+        const $desc = $parent.find('p, div[class*="desc"], div[class*="snippet"]').first();
+        if ($desc.length) {
+          snippet = $desc.text().trim();
+        }
+        
+        // Title validation
+        if (!title || title.length < 5 || title.length > 200) {
+          const $heading = $link.closest('div, article').find('h2, h3, h4').first();
+          if ($heading.length) {
+            title = $heading.text().trim();
+          }
+        }
+        
+        if (title && title.length >= 5 && this.isValidSearchUrl(url)) {
+          console.log(`[SearchEngine] Brave fallback found: "${title.substring(0, 50)}..."`);
+          results.push({
+            title,
+            url: this.cleanBraveUrl(url),
+            description: snippet || 'No description available',
+            fullContent: '',
+            contentPreview: '',
+            wordCount: 0,
+            timestamp,
+            fetchStatus: 'success',
+          });
         }
       });
     }
@@ -775,7 +1025,7 @@ export class SearchEngine {
 
   private parseBingResults(html: string, maxResults: number): SearchResult[] {
     const debugBing = process.env.DEBUG_BING_SEARCH === 'true';
-    console.error(`[SearchEngine] BING: Parsing HTML with length: ${html.length}`);
+    console.error(`[SearchEngine] BING: Parsing HTML (${(html.length / 1024).toFixed(1)}KB)`);
     
     const $ = cheerio.load(html);
     const results: SearchResult[] = [];
@@ -783,10 +1033,10 @@ export class SearchEngine {
 
     // Check for common Bing error indicators
     const pageTitle = $('title').text();
-    console.error(`[SearchEngine] BING: Page title: "${pageTitle}"`);
+    if (debugBing) console.error(`[SearchEngine] BING: Page title: "${pageTitle}"`);
     
     if (pageTitle.includes('Access Denied') || pageTitle.includes('blocked') || pageTitle.includes('captcha')) {
-      console.error(`[SearchEngine] BING: ERROR - Bot detection or access denied detected in page title`);
+      console.error(`[SearchEngine] BING: ERROR - Bot detection detected`);
     }
 
     // Bing result selectors
@@ -796,13 +1046,7 @@ export class SearchEngine {
       '.b_card'      // Card format
     ];
     
-    console.error(`[SearchEngine] BING: Checking for result elements...`);
-    
-    // Log counts for all selectors first
-    for (const selector of resultSelectors) {
-      const elements = $(selector);
-      console.error(`[SearchEngine] BING: Found ${elements.length} elements with selector "${selector}"`);
-    }
+    if (debugBing) console.error(`[SearchEngine] BING: Checking for result elements...`);
     
     let foundResults = false;
     
@@ -887,7 +1131,8 @@ export class SearchEngine {
   }
 
   private parseDuckDuckGoResults(html: string, maxResults: number): SearchResult[] {
-    console.log(`[SearchEngine] Parsing DuckDuckGo HTML with length: ${html.length}`);
+    const debug = process.env.DEBUG_HTML_PARSING === 'true';
+    console.log(`[SearchEngine] Parsing DuckDuckGo HTML (${(html.length / 1024).toFixed(1)}KB)`);
     
     const $ = cheerio.load(html);
     const results: SearchResult[] = [];
@@ -923,6 +1168,153 @@ export class SearchEngine {
     });
 
     console.log(`[SearchEngine] DuckDuckGo found ${results.length} results`);
+    return results;
+  }
+
+  private parseHttpBingResults(html: string, maxResults: number): SearchResult[] {
+    console.log(`[SearchEngine] Parsing HTTP Bing HTML (${(html.length / 1024).toFixed(1)}KB)`);
+    
+    const $ = cheerio.load(html);
+    const results: SearchResult[] = [];
+    const timestamp = generateTimestamp();
+
+    // Bing result selectors
+    $('.b_algo').each((_index, element) => {
+      if (results.length >= maxResults) return false;
+
+      const $element = $(element);
+      
+      // Extract title and URL
+      const $titleElement = $element.find('h2 a');
+      const title = $titleElement.text().trim();
+      const url = $titleElement.attr('href');
+      
+      // Extract snippet
+      const snippet = $element.find('.b_caption p').text().trim();
+      
+      if (title && url && url.startsWith('http')) {
+        console.log(`[SearchEngine] HTTP Bing found: "${title}" -> "${url}"`);
+        results.push({
+          title,
+          url,
+          description: snippet || 'No description available',
+          fullContent: '',
+          contentPreview: '',
+          wordCount: 0,
+          timestamp,
+          fetchStatus: 'success',
+        });
+      }
+    });
+
+    console.log(`[SearchEngine] HTTP Bing found ${results.length} results`);
+    return results;
+  }
+
+  private parseHttpStartpageResults(html: string, maxResults: number): SearchResult[] {
+    console.log(`[SearchEngine] Parsing HTTP Startpage HTML (${(html.length / 1024).toFixed(1)}KB)`);
+    
+    const $ = cheerio.load(html);
+    const results: SearchResult[] = [];
+    const timestamp = generateTimestamp();
+
+    // Startpage result selectors - they use class names like w-gl__result
+    $('.w-gl__result').each((_index, element) => {
+      if (results.length >= maxResults) return false;
+
+      const $element = $(element);
+      
+      // Extract title and URL
+      const $titleElement = $element.find('.w-gl__result-title');
+      const title = $titleElement.text().trim();
+      const url = $titleElement.attr('href');
+      
+      // Extract snippet
+      const snippet = $element.find('.w-gl__description').text().trim();
+      
+      if (title && url && url.startsWith('http')) {
+        console.log(`[SearchEngine] HTTP Startpage found: "${title}" -> "${url}"`);
+        results.push({
+          title,
+          url,
+          description: snippet || 'No description available',
+          fullContent: '',
+          contentPreview: '',
+          wordCount: 0,
+          timestamp,
+          fetchStatus: 'success',
+        });
+      }
+    });
+
+    console.log(`[SearchEngine] HTTP Startpage found ${results.length} results`);
+    return results;
+  }
+
+  private parseHttpQwantResults(html: string, maxResults: number): SearchResult[] {
+    console.log(`[SearchEngine] Parsing HTTP Qwant HTML (${(html.length / 1024).toFixed(1)}KB)`);
+    
+    const $ = cheerio.load(html);
+    const results: SearchResult[] = [];
+    const timestamp = generateTimestamp();
+
+    // Qwant stores results in JSON within script tags (similar to Ecosia)
+    try {
+      // Look for JSON data in script tags
+      $('script[type="application/json"]').each((_index, element) => {
+        if (results.length >= maxResults) return false;
+        
+        const scriptContent = $(element).html();
+        if (!scriptContent) return;
+        
+        try {
+          const data = JSON.parse(scriptContent);
+          
+          // Try to find results in the JSON structure
+          // Qwant's structure may vary, so we'll look for common patterns
+          const findResults = (obj: any): any[] => {
+            if (Array.isArray(obj)) {
+              for (const item of obj) {
+                if (item.title && item.url) {
+                  return [item];
+                }
+                const nested = findResults(item);
+                if (nested.length > 0) return nested;
+              }
+            } else if (obj && typeof obj === 'object') {
+              for (const key in obj) {
+                const nested = findResults(obj[key]);
+                if (nested.length > 0) return nested;
+              }
+            }
+            return [];
+          };
+          
+          const foundResults = findResults(data);
+          for (const item of foundResults) {
+            if (results.length >= maxResults) break;
+            if (item.title && item.url && item.url.startsWith('http')) {
+              results.push({
+                title: item.title,
+                url: item.url,
+                description: item.description || item.desc || 'No description available',
+                fullContent: '',
+                contentPreview: '',
+                wordCount: 0,
+                timestamp,
+                fetchStatus: 'success',
+              });
+            }
+          }
+        } catch {
+          // Skip invalid JSON
+        }
+      });
+    } catch (error) {
+      console.error('[SearchEngine] HTTP Qwant JSON parsing error:', error instanceof Error ? error.message : String(error));
+    }
+
+    console.log(`[SearchEngine] HTTP Qwant found ${results.length} results`);
     return results;
   }
 
@@ -1150,4 +1542,1146 @@ export class SearchEngine {
   async closeAll(): Promise<void> {
     await this.browserPool.closeAll();
   }
+
+  // Yahoo Search using browser automation
+  private async tryYahooSearch(query: string, numResults: number, timeout: number): Promise<SearchResult[]> {
+    console.log(`[SearchEngine] Trying browser-based Yahoo search...`);
+    
+    // Try with retry mechanism
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      let browser;
+      try {
+        // Create a dedicated browser instance for Yahoo search
+        const { chromium } = await import('playwright');
+        browser = await chromium.launch({
+          headless: process.env.BROWSER_HEADLESS !== 'false',
+          args: [
+            '--no-sandbox',
+            '--disable-blink-features=AutomationControlled',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+          ],
+        });
+        
+        console.log(`[SearchEngine] Yahoo search attempt ${attempt}/2 with fresh browser`);
+        const results = await this.tryYahooSearchInternal(browser, query, numResults, timeout);
+        return results;
+      } catch (error) {
+        console.error(`[SearchEngine] Yahoo search attempt ${attempt}/2 failed:`, error);
+        if (attempt === 2) {
+          throw error;
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } finally {
+        if (browser) {
+          try {
+            await browser.close();
+          } catch (closeError) {
+            console.error(`[SearchEngine] Error closing Yahoo browser:`, closeError);
+          }
+        }
+      }
+    }
+    
+    throw new Error('All Yahoo search attempts failed');
+  }
+
+  private async tryYahooSearchInternal(browser: any, query: string, numResults: number, timeout: number): Promise<SearchResult[]> {
+    if (!browser.isConnected()) {
+      throw new Error('Browser is not connected');
+    }
+    
+    try {
+      const context = await browser.newContext({
+        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        viewport: { width: 1366, height: 768 },
+        locale: 'en-US',
+        timezoneId: 'America/New_York',
+      });
+
+      try {
+        const page = await context.newPage();
+        
+        const searchUrl = `https://search.yahoo.com/search?p=${encodeURIComponent(query)}`;
+        console.log(`[SearchEngine] Browser navigating to Yahoo: ${searchUrl}`);
+        
+        await page.goto(searchUrl, { 
+          waitUntil: 'networkidle',
+          timeout: timeout
+        });
+
+        await page.waitForTimeout(1000);
+
+        const html = await page.content();
+        console.log(`[SearchEngine] Yahoo got HTML (${(html.length / 1024).toFixed(1)}KB)`);
+        this.debugSaveHtml(html, 'Yahoo', query);
+        
+        const results = this.parseYahooResults(html, numResults);
+        console.log(`[SearchEngine] Yahoo parsed ${results.length} results`);
+        
+        await context.close();
+        return results;
+      } catch (error) {
+        await context.close();
+        throw error;
+      }
+    } catch (error) {
+      console.error(`[SearchEngine] Yahoo search failed:`, error);
+      throw error;
+    }
+  }
+
+  private parseYahooResults(html: string, maxResults: number): SearchResult[] {
+    const debug = process.env.DEBUG_HTML_PARSING === 'true';
+    console.log(`[SearchEngine] Parsing Yahoo HTML (${(html.length / 1024).toFixed(1)}KB)`);
+    
+    const $ = cheerio.load(html);
+    const results: SearchResult[] = [];
+    const timestamp = generateTimestamp();
+
+    const pageTitle = $('title').text();
+    if (debug) console.log(`[SearchEngine] Yahoo page title: "${pageTitle}"`);
+    
+    // Check for blocks
+    if (pageTitle.toLowerCase().includes('captcha') || 
+        pageTitle.toLowerCase().includes('blocked')) {
+      console.log(`[SearchEngine] Yahoo ERROR: Bot detection detected`);
+      return results;
+    }
+
+    // Yahoo result selectors
+    const resultSelectors = [
+      '.algo',                    // Main Yahoo organic results
+      '.searchCenterMiddle li',   // Alternative format
+      '#web > ol > li',          // Direct web results
+      '[data-bkt*="result"]',    // Data attribute results
+      '.dd.algo',                // Desktop results
+      '.compTitle'               // Component title results
+    ];
+    
+    for (const selector of resultSelectors) {
+      if (results.length >= maxResults) break;
+      
+      const elements = $(selector);
+      if (debug && elements.length > 0) {
+        console.log(`[SearchEngine] Yahoo selector "${selector}" found ${elements.length} elements`);
+      }
+      
+      elements.each((_index, element) => {
+        if (results.length >= maxResults) return false;
+
+        const $element = $(element);
+        
+        // Find title and URL
+        const titleSelectors = [
+          'h3 a',
+          '.title a',
+          'a.ac-algo',
+          'a[data-matarget]',
+          'a[href*="://"]'
+        ];
+        
+        let title = '';
+        let url = '';
+        
+        for (const titleSelector of titleSelectors) {
+          const $titleElement = $element.find(titleSelector).first();
+          if ($titleElement.length) {
+            title = $titleElement.text().trim();
+            url = $titleElement.attr('href') || '';
+            if (title && url && url.startsWith('http')) {
+              break;
+            }
+          }
+        }
+        
+        // Find snippet
+        const snippetSelectors = [
+          '.compText',
+          'p',
+          '.ac-21th',
+          '[class*="abstract"]'
+        ];
+        
+        let snippet = '';
+        for (const snippetSelector of snippetSelectors) {
+          const $snippetElement = $element.find(snippetSelector).first();
+          if ($snippetElement.length) {
+            snippet = $snippetElement.text().trim();
+            if (snippet.length > 20) break;
+          }
+        }
+        
+        if (title && url && this.isValidSearchUrl(url)) {
+          results.push({
+            title,
+            url: this.cleanSearchUrl(url),
+            description: snippet || 'No description available',
+            fullContent: '',
+            contentPreview: '',
+            wordCount: 0,
+            timestamp,
+            fetchStatus: 'success',
+          });
+        }
+      });
+      
+      if (results.length > 0) {
+        if (debug) console.log(`[SearchEngine] Yahoo selector "${selector}" found ${results.length} results`);
+        break;
+      }
+    }
+
+    // Fallback: Look for any reasonable links
+    if (results.length === 0) {
+      if (debug) console.log(`[SearchEngine] Yahoo fallback: Looking for any external links...`);
+      
+      $('a[href^="http"]').each((_index, element) => {
+        if (results.length >= maxResults) return false;
+        
+        const $link = $(element);
+        const url = $link.attr('href') || '';
+        let title = $link.text().trim();
+        
+        // Skip Yahoo's own domains
+        if (url.includes('yahoo.com') || url.includes('.css') || url.includes('.js')) {
+          return;
+        }
+        
+        // Find nearby description
+        let snippet = '';
+        const $parent = $link.closest('div, li, article');
+        const $desc = $parent.find('p, span, div').filter((_i, el) => {
+          const text = $(el).text().trim();
+          return text.length > 30 && text.length < 300;
+        }).first();
+        
+        if ($desc.length) {
+          snippet = $desc.text().trim();
+        }
+        
+        if (title && title.length >= 5 && this.isValidSearchUrl(url)) {
+          results.push({
+            title,
+            url: this.cleanSearchUrl(url),
+            description: snippet || 'No description available',
+            fullContent: '',
+            contentPreview: '',
+            wordCount: 0,
+            timestamp,
+            fetchStatus: 'success',
+          });
+        }
+      });
+    }
+
+    console.log(`[SearchEngine] Yahoo found ${results.length} results`);
+    return results;
+  }
+
+  // Startpage Search (uses Google results, privacy-focused)
+  private async tryStartpageSearch(query: string, numResults: number, timeout: number): Promise<SearchResult[]> {
+    console.log(`[SearchEngine] Trying browser-based Startpage search...`);
+    
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      let browser;
+      try {
+        const { chromium } = await import('playwright');
+        browser = await chromium.launch({
+          headless: process.env.BROWSER_HEADLESS !== 'false',
+          args: ['--no-sandbox', '--disable-blink-features=AutomationControlled', '--disable-dev-shm-usage'],
+        });
+        
+        console.log(`[SearchEngine] Startpage search attempt ${attempt}/2`);
+        const results = await this.tryStartpageSearchInternal(browser, query, numResults, timeout);
+        return results;
+      } catch (error) {
+        console.error(`[SearchEngine] Startpage search attempt ${attempt}/2 failed:`, error);
+        if (attempt === 2) throw error;
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } finally {
+        if (browser) {
+          try { await browser.close(); } catch {}
+        }
+      }
+    }
+    throw new Error('All Startpage search attempts failed');
+  }
+
+  private async tryStartpageSearchInternal(browser: any, query: string, numResults: number, timeout: number): Promise<SearchResult[]> {
+    if (!browser.isConnected()) throw new Error('Browser is not connected');
+    
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+      viewport: { width: 1366, height: 768 },
+      locale: 'en-US',
+    });
+
+    try {
+      const page = await context.newPage();
+      const searchUrl = `https://www.startpage.com/do/dsearch?query=${encodeURIComponent(query)}`;
+      console.log(`[SearchEngine] Navigating to Startpage: ${searchUrl}`);
+      
+      await page.goto(searchUrl, { waitUntil: 'networkidle', timeout });
+      await page.waitForTimeout(1500);
+
+      const html = await page.content();
+      console.log(`[SearchEngine] Startpage got HTML (${(html.length / 1024).toFixed(1)}KB)`);
+      this.debugSaveHtml(html, 'Startpage', query);
+      
+      const results = this.parseStartpageResults(html, numResults);
+      console.log(`[SearchEngine] Startpage parsed ${results.length} results`);
+      
+      await context.close();
+      return results;
+    } catch (error) {
+      await context.close();
+      throw error;
+    }
+  }
+
+  private parseStartpageResults(html: string, maxResults: number): SearchResult[] {
+    const debug = process.env.DEBUG_HTML_PARSING === 'true';
+    console.log(`[SearchEngine] Parsing Startpage HTML (${(html.length / 1024).toFixed(1)}KB)`);
+    
+    const $ = cheerio.load(html);
+    const results: SearchResult[] = [];
+    const timestamp = generateTimestamp();
+
+    const resultSelectors = [
+      '.w-gl__result',           // Main Startpage results
+      '.result',                 // Alternative
+      'article',                 // Article format
+      '[data-testid="result"]'   // Test ID format
+    ];
+    
+    for (const selector of resultSelectors) {
+      if (results.length >= maxResults) break;
+      
+      const elements = $(selector);
+      if (debug && elements.length > 0) {
+        console.log(`[SearchEngine] Startpage selector "${selector}" found ${elements.length} elements`);
+      }
+      
+      elements.each((_index, element) => {
+        if (results.length >= maxResults) return false;
+        const $element = $(element);
+        
+        const titleSelectors = ['h2 a', 'h3 a', '.w-gl__result-title a', 'a.w-gl__result-url'];
+        let title = '', url = '';
+        
+        for (const titleSelector of titleSelectors) {
+          const $titleElement = $element.find(titleSelector).first();
+          if ($titleElement.length) {
+            title = $titleElement.text().trim();
+            url = $titleElement.attr('href') || '';
+            if (title && url && url.startsWith('http')) break;
+          }
+        }
+        
+        const snippetSelectors = ['.w-gl__description', 'p', '.result-abstract'];
+        let snippet = '';
+        for (const snippetSelector of snippetSelectors) {
+          const $snippetElement = $element.find(snippetSelector).first();
+          if ($snippetElement.length) {
+            snippet = $snippetElement.text().trim();
+            if (snippet.length > 20) break;
+          }
+        }
+        
+        if (title && url && this.isValidSearchUrl(url)) {
+          results.push({
+            title,
+            url: this.cleanSearchUrl(url),
+            description: snippet || 'No description available',
+            fullContent: '', contentPreview: '', wordCount: 0, timestamp, fetchStatus: 'success',
+          });
+        }
+      });
+      
+      if (results.length > 0) break;
+    }
+
+    console.log(`[SearchEngine] Startpage found ${results.length} results`);
+    return results;
+  }
+
+  // Qwant Search (European search engine)
+  private async tryQwantSearch(query: string, numResults: number, timeout: number): Promise<SearchResult[]> {
+    console.log(`[SearchEngine] Trying browser-based Qwant search...`);
+    
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      let browser;
+      try {
+        const { chromium } = await import('playwright');
+        browser = await chromium.launch({
+          headless: process.env.BROWSER_HEADLESS !== 'false',
+          args: ['--no-sandbox', '--disable-dev-shm-usage'],
+        });
+        
+        console.log(`[SearchEngine] Qwant search attempt ${attempt}/2`);
+        const results = await this.tryQwantSearchInternal(browser, query, numResults, timeout);
+        return results;
+      } catch (error) {
+        console.error(`[SearchEngine] Qwant search attempt ${attempt}/2 failed:`, error);
+        if (attempt === 2) throw error;
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } finally {
+        if (browser) {
+          try { await browser.close(); } catch {}
+        }
+      }
+    }
+    throw new Error('All Qwant search attempts failed');
+  }
+
+  private async tryQwantSearchInternal(browser: any, query: string, numResults: number, timeout: number): Promise<SearchResult[]> {
+    if (!browser.isConnected()) throw new Error('Browser is not connected');
+    
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+      viewport: { width: 1366, height: 768 },
+      locale: 'en-US',
+    });
+
+    try {
+      const page = await context.newPage();
+      const searchUrl = `https://www.qwant.com/?q=${encodeURIComponent(query)}&t=web`;
+      console.log(`[SearchEngine] Navigating to Qwant: ${searchUrl}`);
+      
+      await page.goto(searchUrl, { waitUntil: 'networkidle', timeout });
+      await page.waitForTimeout(2000); // Qwant needs more time for JS
+
+      const html = await page.content();
+      console.log(`[SearchEngine] Qwant got HTML (${(html.length / 1024).toFixed(1)}KB)`);
+      this.debugSaveHtml(html, 'Qwant', query);
+      
+      const results = this.parseQwantResults(html, numResults);
+      console.log(`[SearchEngine] Qwant parsed ${results.length} results`);
+      
+      await context.close();
+      return results;
+    } catch (error) {
+      await context.close();
+      throw error;
+    }
+  }
+
+  private parseQwantResults(html: string, maxResults: number): SearchResult[] {
+    const debug = process.env.DEBUG_HTML_PARSING === 'true';
+    console.log(`[SearchEngine] Parsing Qwant HTML (${(html.length / 1024).toFixed(1)}KB)`);
+    
+    const $ = cheerio.load(html);
+    const results: SearchResult[] = [];
+    const timestamp = generateTimestamp();
+
+    const resultSelectors = [
+      'article[data-testid="serp-item"]',  // Main Qwant results
+      '[data-testid="webResult"]',
+      '.result',
+      'article',
+      '[class*="Result"]'
+    ];
+    
+    for (const selector of resultSelectors) {
+      if (results.length >= maxResults) break;
+      
+      const elements = $(selector);
+      if (debug && elements.length > 0) {
+        console.log(`[SearchEngine] Qwant selector "${selector}" found ${elements.length} elements`);
+      }
+      
+      elements.each((_index, element) => {
+        if (results.length >= maxResults) return false;
+        const $element = $(element);
+        
+        const titleSelectors = ['h3 a', 'a[data-testid="title"]', 'h2 a', 'a[href^="http"]'];
+        let title = '', url = '';
+        
+        for (const titleSelector of titleSelectors) {
+          const $titleElement = $element.find(titleSelector).first();
+          if ($titleElement.length) {
+            title = $titleElement.text().trim();
+            url = $titleElement.attr('href') || '';
+            if (title && url && url.startsWith('http')) break;
+          }
+        }
+        
+        const snippetSelectors = ['p[data-testid="description"]', 'p', '.description', 'div[class*="desc"]'];
+        let snippet = '';
+        for (const snippetSelector of snippetSelectors) {
+          const $snippetElement = $element.find(snippetSelector).first();
+          if ($snippetElement.length) {
+            snippet = $snippetElement.text().trim();
+            if (snippet.length > 20) break;
+          }
+        }
+        
+        if (title && url && this.isValidSearchUrl(url)) {
+          results.push({
+            title,
+            url: this.cleanSearchUrl(url),
+            description: snippet || 'No description available',
+            fullContent: '', contentPreview: '', wordCount: 0, timestamp, fetchStatus: 'success',
+          });
+        }
+      });
+      
+      if (results.length > 0) break;
+    }
+
+    console.log(`[SearchEngine] Qwant found ${results.length} results`);
+    return results;
+  }
+
+  // Ecosia Search (tree-planting search engine, uses Bing results)
+  private async tryEcosiaSearch(query: string, numResults: number, timeout: number): Promise<SearchResult[]> {
+    console.log(`[SearchEngine] Trying browser-based Ecosia search...`);
+    
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      let browser;
+      try {
+        const { chromium } = await import('playwright');
+        browser = await chromium.launch({
+          headless: process.env.BROWSER_HEADLESS !== 'false',
+          args: ['--no-sandbox', '--disable-dev-shm-usage'],
+        });
+        
+        console.log(`[SearchEngine] Ecosia search attempt ${attempt}/2`);
+        const results = await this.tryEcosiaSearchInternal(browser, query, numResults, timeout);
+        return results;
+      } catch (error) {
+        console.error(`[SearchEngine] Ecosia search attempt ${attempt}/2 failed:`, error);
+        if (attempt === 2) throw error;
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } finally {
+        if (browser) {
+          try { await browser.close(); } catch {}
+        }
+      }
+    }
+    throw new Error('All Ecosia search attempts failed');
+  }
+
+  private async tryEcosiaSearchInternal(browser: any, query: string, numResults: number, timeout: number): Promise<SearchResult[]> {
+    if (!browser.isConnected()) throw new Error('Browser is not connected');
+    
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+      viewport: { width: 1366, height: 768 },
+      locale: 'en-US',
+    });
+
+    try {
+      const page = await context.newPage();
+      const searchUrl = `https://www.ecosia.org/search?q=${encodeURIComponent(query)}`;
+      console.log(`[SearchEngine] Navigating to Ecosia: ${searchUrl}`);
+      
+      await page.goto(searchUrl, { waitUntil: 'networkidle', timeout });
+      await page.waitForTimeout(1500);
+
+      const html = await page.content();
+      console.log(`[SearchEngine] Ecosia got HTML (${(html.length / 1024).toFixed(1)}KB)`);
+      this.debugSaveHtml(html, 'Ecosia', query);
+      
+      const results = this.parseEcosiaResults(html, numResults);
+      console.log(`[SearchEngine] Ecosia parsed ${results.length} results`);
+      
+      await context.close();
+      return results;
+    } catch (error) {
+      await context.close();
+      throw error;
+    }
+  }
+
+  private parseEcosiaResults(html: string, maxResults: number): SearchResult[] {
+    const debug = process.env.DEBUG_HTML_PARSING === 'true';
+    console.log(`[SearchEngine] Parsing Ecosia HTML (${(html.length / 1024).toFixed(1)}KB)`);
+    
+    const results: SearchResult[] = [];
+    const timestamp = generateTimestamp();
+
+    try {
+      // Ecosia is a JavaScript SPA that embeds results in JSON within a script tag
+      const $ = cheerio.load(html);
+      const scriptTag = $('script#vike_pageContext');
+      
+      if (scriptTag.length === 0) {
+        console.log('[SearchEngine] Ecosia: No vike_pageContext script tag found');
+        return results;
+      }
+
+      const jsonContent = scriptTag.html();
+      if (!jsonContent) {
+        console.log('[SearchEngine] Ecosia: vike_pageContext script tag is empty');
+        return results;
+      }
+
+      const pageData = JSON.parse(jsonContent);
+      
+      // Navigate to the results array: initialState.main.mainlineResults
+      const mainlineResults = pageData?.initialState?.main?.mainlineResults;
+      if (!Array.isArray(mainlineResults) || mainlineResults.length === 0) {
+        console.log('[SearchEngine] Ecosia: No mainlineResults array found in JSON');
+        return results;
+      }
+
+      // mainlineResults is an array of arrays, flatten it
+      const allResults = mainlineResults.flat();
+      
+      if (debug) {
+        console.log(`[SearchEngine] Ecosia: Found ${allResults.length} total items in mainlineResults`);
+      }
+
+      // Filter for web results and map to SearchResult format
+      for (const item of allResults) {
+        if (results.length >= maxResults) break;
+        
+        // Only process web results (skip ads, videos, etc.)
+        if (item.type !== 'web') continue;
+        
+        const title = item.title?.trim();
+        const url = item.url?.trim();
+        const description = item.description?.trim();
+        
+        if (title && url && this.isValidSearchUrl(url)) {
+          results.push({
+            title,
+            url: this.cleanSearchUrl(url),
+            description: description || 'No description available',
+            fullContent: '',
+            contentPreview: '',
+            wordCount: 0,
+            timestamp,
+            fetchStatus: 'success',
+          });
+        }
+      }
+
+      console.log(`[SearchEngine] Ecosia found ${results.length} results`);
+      
+    } catch (error) {
+      console.error('[SearchEngine] Ecosia JSON parsing error:', error instanceof Error ? error.message : String(error));
+    }
+
+    return results;
+  }
+
+  // ==================== Mojeek Search ====================
+  
+  private async tryMojeekSearch(query: string, numResults: number, timeout: number): Promise<SearchResult[]> {
+    console.log(`[SearchEngine] Trying browser-based Mojeek search...`);
+    
+    // Try with retry mechanism
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      let browser;
+      try {
+        const { chromium } = await import('playwright');
+        browser = await chromium.launch({
+          headless: process.env.BROWSER_HEADLESS !== 'false',
+          args: [
+            '--no-sandbox',
+            '--disable-blink-features=AutomationControlled',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+          ],
+        });
+        
+        console.log(`[SearchEngine] Mojeek search attempt ${attempt}/2`);
+        const results = await this.tryMojeekSearchInternal(browser, query, numResults, timeout);
+        return results;
+      } catch (error) {
+        console.error(`[SearchEngine] Mojeek search attempt ${attempt}/2 failed:`, error);
+        if (attempt === 2) throw error;
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } finally {
+        if (browser) {
+          try { await browser.close(); } catch {}
+        }
+      }
+    }
+    throw new Error('All Mojeek search attempts failed');
+  }
+
+  private async tryMojeekSearchInternal(browser: any, query: string, numResults: number, timeout: number): Promise<SearchResult[]> {
+    if (!browser.isConnected()) throw new Error('Browser is not connected');
+    
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+      viewport: { width: 1366, height: 768 },
+      locale: 'en-US',
+    });
+
+    try {
+      const page = await context.newPage();
+      const searchUrl = `https://www.mojeek.com/search?q=${encodeURIComponent(query)}`;
+      console.log(`[SearchEngine] Navigating to Mojeek: ${searchUrl}`);
+      
+      await page.goto(searchUrl, { waitUntil: 'networkidle', timeout });
+      await page.waitForTimeout(1500);
+
+      const html = await page.content();
+      console.log(`[SearchEngine] Mojeek got HTML (${(html.length / 1024).toFixed(1)}KB)`);
+      this.debugSaveHtml(html, 'Mojeek', query);
+      
+      const results = this.parseMojeekResults(html, numResults);
+      console.log(`[SearchEngine] Mojeek parsed ${results.length} results`);
+      
+      await context.close();
+      return results;
+    } catch (error) {
+      await context.close();
+      throw error;
+    }
+  }
+
+  private parseMojeekResults(html: string, maxResults: number): SearchResult[] {
+    const debug = process.env.DEBUG_HTML_PARSING === 'true';
+    console.log(`[SearchEngine] Parsing Mojeek HTML (${(html.length / 1024).toFixed(1)}KB)`);
+    
+    const $ = cheerio.load(html);
+    const results: SearchResult[] = [];
+    const timestamp = generateTimestamp();
+
+    const pageTitle = $('title').text();
+    if (debug) console.log(`[SearchEngine] Mojeek page title: "${pageTitle}"`);
+
+    // Mojeek result selectors
+    const resultSelectors = [
+      'li.result',              // Main Mojeek results
+      'ul.results-standard > li',
+      '.result-item',
+      '[class*="result"]'
+    ];
+    
+    for (const selector of resultSelectors) {
+      if (results.length >= maxResults) break;
+      
+      const elements = $(selector);
+      if (debug && elements.length > 0) {
+        console.log(`[SearchEngine] Mojeek selector "${selector}" found ${elements.length} elements`);
+      }
+      
+      elements.each((_index, element) => {
+        if (results.length >= maxResults) return false;
+
+        const $element = $(element);
+        
+        // Find title and URL
+        const titleSelectors = [
+          'h2 a',
+          'a.title',
+          '.result-title a',
+          'a[href^="http"]'
+        ];
+        
+        let title = '';
+        let url = '';
+        
+        for (const titleSelector of titleSelectors) {
+          const $titleElement = $element.find(titleSelector).first();
+          if ($titleElement.length) {
+            title = $titleElement.text().trim();
+            url = $titleElement.attr('href') || '';
+            if (title && url && url.startsWith('http')) {
+              break;
+            }
+          }
+        }
+        
+        // Find snippet
+        const snippetSelectors = [
+          'p.s',
+          '.result-snippet',
+          'p',
+          '.desc'
+        ];
+        
+        let snippet = '';
+        for (const snippetSelector of snippetSelectors) {
+          const $snippetElement = $element.find(snippetSelector).first();
+          if ($snippetElement.length) {
+            snippet = $snippetElement.text().trim();
+            if (snippet.length > 20) break;
+          }
+        }
+        
+        if (title && url && this.isValidSearchUrl(url)) {
+          results.push({
+            title,
+            url: this.cleanSearchUrl(url),
+            description: snippet || 'No description available',
+            fullContent: '',
+            contentPreview: '',
+            wordCount: 0,
+            timestamp,
+            fetchStatus: 'success',
+          });
+        }
+      });
+      
+      if (results.length > 0) {
+        if (debug) console.log(`[SearchEngine] Mojeek selector "${selector}" found ${results.length} results`);
+        break;
+      }
+    }
+
+    return results;
+  }
+
+  // ==================== Searx Search ====================
+  
+  private async trySearxSearch(query: string, numResults: number, timeout: number): Promise<SearchResult[]> {
+    console.log(`[SearchEngine] Trying browser-based Searx search...`);
+    
+    // Use searx.be as a reliable public instance
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      let browser;
+      try {
+        const { chromium } = await import('playwright');
+        browser = await chromium.launch({
+          headless: process.env.BROWSER_HEADLESS !== 'false',
+          args: [
+            '--no-sandbox',
+            '--disable-blink-features=AutomationControlled',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+          ],
+        });
+        
+        console.log(`[SearchEngine] Searx search attempt ${attempt}/2`);
+        const results = await this.trySearxSearchInternal(browser, query, numResults, timeout);
+        return results;
+      } catch (error) {
+        console.error(`[SearchEngine] Searx search attempt ${attempt}/2 failed:`, error);
+        if (attempt === 2) throw error;
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } finally {
+        if (browser) {
+          try { await browser.close(); } catch {}
+        }
+      }
+    }
+    throw new Error('All Searx search attempts failed');
+  }
+
+  private async trySearxSearchInternal(browser: any, query: string, numResults: number, timeout: number): Promise<SearchResult[]> {
+    if (!browser.isConnected()) throw new Error('Browser is not connected');
+    
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+      viewport: { width: 1366, height: 768 },
+      locale: 'en-US',
+    });
+
+    try {
+      const page = await context.newPage();
+      // Using searx.be as primary instance
+      const searchUrl = `https://searx.be/search?q=${encodeURIComponent(query)}&categories=general`;
+      console.log(`[SearchEngine] Navigating to Searx: ${searchUrl}`);
+      
+      await page.goto(searchUrl, { waitUntil: 'networkidle', timeout });
+      await page.waitForTimeout(1500);
+
+      const html = await page.content();
+      console.log(`[SearchEngine] Searx got HTML (${(html.length / 1024).toFixed(1)}KB)`);
+      this.debugSaveHtml(html, 'Searx', query);
+      
+      const results = this.parseSearxResults(html, numResults);
+      console.log(`[SearchEngine] Searx parsed ${results.length} results`);
+      
+      await context.close();
+      return results;
+    } catch (error) {
+      await context.close();
+      throw error;
+    }
+  }
+
+  private parseSearxResults(html: string, maxResults: number): SearchResult[] {
+    const debug = process.env.DEBUG_HTML_PARSING === 'true';
+    console.log(`[SearchEngine] Parsing Searx HTML (${(html.length / 1024).toFixed(1)}KB)`);
+    
+    const $ = cheerio.load(html);
+    const results: SearchResult[] = [];
+    const timestamp = generateTimestamp();
+
+    const pageTitle = $('title').text();
+    if (debug) console.log(`[SearchEngine] Searx page title: "${pageTitle}"`);
+
+    // Searx result selectors
+    const resultSelectors = [
+      'article.result',          // Main Searx results
+      '.result',
+      '#urls article',
+      '[class*="result"]'
+    ];
+    
+    for (const selector of resultSelectors) {
+      if (results.length >= maxResults) break;
+      
+      const elements = $(selector);
+      if (debug && elements.length > 0) {
+        console.log(`[SearchEngine] Searx selector "${selector}" found ${elements.length} elements`);
+      }
+      
+      elements.each((_index, element) => {
+        if (results.length >= maxResults) return false;
+
+        const $element = $(element);
+        
+        // Find title and URL
+        const titleSelectors = [
+          'h3 a',
+          'a.url_wrapper',
+          '.result__title a',
+          'a[href^="http"]'
+        ];
+        
+        let title = '';
+        let url = '';
+        
+        for (const titleSelector of titleSelectors) {
+          const $titleElement = $element.find(titleSelector).first();
+          if ($titleElement.length) {
+            title = $titleElement.text().trim();
+            url = $titleElement.attr('href') || '';
+            if (title && url && url.startsWith('http')) {
+              break;
+            }
+          }
+        }
+        
+        // Find snippet
+        const snippetSelectors = [
+          '.result__content',
+          '.content',
+          'p',
+          '.result-desc'
+        ];
+        
+        let snippet = '';
+        for (const snippetSelector of snippetSelectors) {
+          const $snippetElement = $element.find(snippetSelector).first();
+          if ($snippetElement.length) {
+            snippet = $snippetElement.text().trim();
+            if (snippet.length > 20) break;
+          }
+        }
+        
+        if (title && url && this.isValidSearchUrl(url)) {
+          results.push({
+            title,
+            url: this.cleanSearchUrl(url),
+            description: snippet || 'No description available',
+            fullContent: '',
+            contentPreview: '',
+            wordCount: 0,
+            timestamp,
+            fetchStatus: 'success',
+          });
+        }
+      });
+      
+      if (results.length > 0) {
+        if (debug) console.log(`[SearchEngine] Searx selector "${selector}" found ${results.length} results`);
+        break;
+      }
+    }
+
+    return results;
+  }
+
+  // ==================== Swisscows Search ====================
+  
+  private async trySwisscowsSearch(query: string, numResults: number, timeout: number): Promise<SearchResult[]> {
+    console.log(`[SearchEngine] Trying browser-based Swisscows search...`);
+    
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      let browser;
+      try {
+        const { chromium } = await import('playwright');
+        browser = await chromium.launch({
+          headless: process.env.BROWSER_HEADLESS !== 'false',
+          args: [
+            '--no-sandbox',
+            '--disable-blink-features=AutomationControlled',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+          ],
+        });
+        
+        console.log(`[SearchEngine] Swisscows search attempt ${attempt}/2`);
+        const results = await this.trySwisscowsSearchInternal(browser, query, numResults, timeout);
+        return results;
+      } catch (error) {
+        console.error(`[SearchEngine] Swisscows search attempt ${attempt}/2 failed:`, error);
+        if (attempt === 2) throw error;
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } finally {
+        if (browser) {
+          try { await browser.close(); } catch {}
+        }
+      }
+    }
+    throw new Error('All Swisscows search attempts failed');
+  }
+
+  private async trySwisscowsSearchInternal(browser: any, query: string, numResults: number, timeout: number): Promise<SearchResult[]> {
+    if (!browser.isConnected()) throw new Error('Browser is not connected');
+    
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+      viewport: { width: 1366, height: 768 },
+      locale: 'en-US',
+    });
+
+    try {
+      const page = await context.newPage();
+      const searchUrl = `https://swisscows.com/en/web?query=${encodeURIComponent(query)}`;
+      console.log(`[SearchEngine] Navigating to Swisscows: ${searchUrl}`);
+      
+      await page.goto(searchUrl, { waitUntil: 'networkidle', timeout });
+      await page.waitForTimeout(2000); // Swisscows needs more time for rendering
+
+      const html = await page.content();
+      console.log(`[SearchEngine] Swisscows got HTML (${(html.length / 1024).toFixed(1)}KB)`);
+      this.debugSaveHtml(html, 'Swisscows', query);
+      
+      const results = this.parseSwisscowsResults(html, numResults);
+      console.log(`[SearchEngine] Swisscows parsed ${results.length} results`);
+      
+      await context.close();
+      return results;
+    } catch (error) {
+      await context.close();
+      throw error;
+    }
+  }
+
+  private parseSwisscowsResults(html: string, maxResults: number): SearchResult[] {
+    const debug = process.env.DEBUG_HTML_PARSING === 'true';
+    console.log(`[SearchEngine] Parsing Swisscows HTML (${(html.length / 1024).toFixed(1)}KB)`);
+    
+    const $ = cheerio.load(html);
+    const results: SearchResult[] = [];
+    const timestamp = generateTimestamp();
+
+    const pageTitle = $('title').text();
+    if (debug) console.log(`[SearchEngine] Swisscows page title: "${pageTitle}"`);
+
+    // Swisscows result selectors
+    const resultSelectors = [
+      'article.web-result',      // Main Swisscows results
+      '.result-item',
+      'article',
+      '[class*="result"]'
+    ];
+    
+    for (const selector of resultSelectors) {
+      if (results.length >= maxResults) break;
+      
+      const elements = $(selector);
+      if (debug && elements.length > 0) {
+        console.log(`[SearchEngine] Swisscows selector "${selector}" found ${elements.length} elements`);
+      }
+      
+      elements.each((_index, element) => {
+        if (results.length >= maxResults) return false;
+
+        const $element = $(element);
+        
+        // Find title and URL
+        const titleSelectors = [
+          'h2 a',
+          'a.title',
+          '.result-title a',
+          'a[href^="http"]'
+        ];
+        
+        let title = '';
+        let url = '';
+        
+        for (const titleSelector of titleSelectors) {
+          const $titleElement = $element.find(titleSelector).first();
+          if ($titleElement.length) {
+            title = $titleElement.text().trim();
+            url = $titleElement.attr('href') || '';
+            if (title && url && url.startsWith('http')) {
+              break;
+            }
+          }
+        }
+        
+        // Find snippet
+        const snippetSelectors = [
+          '.description',
+          'p.desc',
+          'p',
+          '.result-desc'
+        ];
+        
+        let snippet = '';
+        for (const snippetSelector of snippetSelectors) {
+          const $snippetElement = $element.find(snippetSelector).first();
+          if ($snippetElement.length) {
+            snippet = $snippetElement.text().trim();
+            if (snippet.length > 20) break;
+          }
+        }
+        
+        if (title && url && this.isValidSearchUrl(url)) {
+          results.push({
+            title,
+            url: this.cleanSearchUrl(url),
+            description: snippet || 'No description available',
+            fullContent: '',
+            contentPreview: '',
+            wordCount: 0,
+            timestamp,
+            fetchStatus: 'success',
+          });
+        }
+      });
+      
+      if (results.length > 0) {
+        if (debug) console.log(`[SearchEngine] Swisscows selector "${selector}" found ${results.length} results`);
+        break;
+      }
+    }
+
+    return results;
+  }
+
+  private cleanSearchUrl(url: string): string {
+    // Generic URL cleaner for various search engines
+    try {
+      // Handle Yahoo redirect URLs
+      if (url.includes('yahoo.com') && url.includes('RU=')) {
+        const match = url.match(/RU=([^/]+)/);
+        if (match) {
+          return decodeURIComponent(match[1]);
+        }
+      }
+      
+      // Handle other redirect patterns
+      const urlObj = new URL(url);
+      const params = urlObj.searchParams;
+      
+      // Common redirect parameter names
+      const redirectParams = ['url', 'q', 'link', 'target', 'redirect', 'goto'];
+      for (const param of redirectParams) {
+        const value = params.get(param);
+        if (value && value.startsWith('http')) {
+          return decodeURIComponent(value);
+        }
+      }
+    } catch {
+      // If URL parsing fails, return as-is
+    }
+    
+    return url;
+  }
 }
+
