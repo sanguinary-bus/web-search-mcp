@@ -2,15 +2,12 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { SearchOptions, SearchResult, SearchResultWithMetadata } from './types.js';
 import { generateTimestamp, sanitizeQuery } from './utils.js';
-import { RateLimiter } from './rate-limiter.js';
 import { BrowserPool } from './browser-pool.js';
 
 export class SearchEngine {
-  private readonly rateLimiter: RateLimiter;
   private browserPool: BrowserPool;
 
   constructor() {
-    this.rateLimiter = new RateLimiter(10); // 10 requests per minute
     this.browserPool = new BrowserPool();
   }
 
@@ -21,8 +18,7 @@ export class SearchEngine {
     console.log(`[SearchEngine] Starting search for query: "${sanitizedQuery}"`);
     
     try {
-      return await this.rateLimiter.execute(async () => {
-        console.log(`[SearchEngine] Starting search with multiple engines...`);
+      console.log(`[SearchEngine] Starting search with multiple engines...`);
         
         // Configuration from environment variables
         const enableQualityCheck = process.env.ENABLE_RELEVANCE_CHECKING !== 'false';
@@ -97,10 +93,9 @@ export class SearchEngine {
             await this.handleBrowserError(error, approach.name);
           }
         }
-        
-        console.log(`[SearchEngine] All approaches failed, returning empty results`);
-        return { results: [], engine: 'None' };
-      });
+      
+      console.log(`[SearchEngine] All approaches failed, returning empty results`);
+      return { results: [], engine: 'None' };
     } catch (error) {
       console.error('[SearchEngine] Search error:', error);
       if (axios.isAxiosError(error)) {
