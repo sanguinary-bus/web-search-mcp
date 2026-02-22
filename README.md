@@ -363,9 +363,4 @@ See [API.md](./docs/API.md) for complete technical details.
 
 MIT License - see [LICENSE](./LICENSE) for details.
 
-## Feedback
 
-This is an open source project and we welcome feedback! If you encounter any issues or have suggestions for improvements, please:
-
-- Open an issue on GitHub
-- Submit a pull request
