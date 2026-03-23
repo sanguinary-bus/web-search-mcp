@@ -3,7 +3,7 @@ import * as path from 'path';
 
 const LOG_DIR = path.join(process.cwd(), 'logs');
 const LOG_FILE = path.join(LOG_DIR, 'server.log');
-const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000; // 604800000 ms
 
 let logStream: fs.WriteStream | null = null;
 
@@ -18,7 +18,7 @@ export function initializeLogger(): void {
     if (fs.existsSync(LOG_FILE)) {
       const stats = fs.statSync(LOG_FILE);
       const fileAge = Date.now() - stats.mtimeMs;
-      
+
       if (fileAge > ONE_WEEK_MS) {
         // Delete old log file
         fs.unlinkSync(LOG_FILE);
@@ -39,25 +39,31 @@ export function initializeLogger(): void {
     const originalWarn = console.warn;
 
     console.log = (...args: unknown[]) => {
-      const message = args.map(arg => 
-        typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
-      ).join(' ');
+      const message = args
+        .map(arg =>
+          typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+        )
+        .join(' ');
       logStream?.write(`[${new Date().toISOString()}] LOG: ${message}\n`);
       originalLog(...args);
     };
 
     console.error = (...args: unknown[]) => {
-      const message = args.map(arg => 
-        typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
-      ).join(' ');
+      const message = args
+        .map(arg =>
+          typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+        )
+        .join(' ');
       logStream?.write(`[${new Date().toISOString()}] ERROR: ${message}\n`);
       originalError(...args);
     };
 
     console.warn = (...args: unknown[]) => {
-      const message = args.map(arg => 
-        typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
-      ).join(' ');
+      const message = args
+        .map(arg =>
+          typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+        )
+        .join(' ');
       logStream?.write(`[${new Date().toISOString()}] WARN: ${message}\n`);
       originalWarn(...args);
     };

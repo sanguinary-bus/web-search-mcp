@@ -2,7 +2,12 @@
  * Utility functions for the web search MCP server
  */
 
-export function cleanText(text: string, maxLength: number = 10000): string {
+import { CONTENT_LIMITS } from './constants.js';
+
+export function cleanText(
+  text: string,
+  maxLength: number = CONTENT_LIMITS.CLEAN_TEXT_DEFAULT
+): string {
   return text
     .replace(/\s+/g, ' ') // Replace multiple whitespace with single space
     .replace(/\n\s*\n/g, '\n') // Replace multiple newlines with single newline
@@ -11,10 +16,16 @@ export function cleanText(text: string, maxLength: number = 10000): string {
 }
 
 export function getWordCount(text: string): number {
-  return text.trim().split(/\s+/).filter(word => word.length > 0).length;
+  return text
+    .trim()
+    .split(/\s+/)
+    .filter(word => word.length > 0).length;
 }
 
-export function getContentPreview(text: string, maxLength: number = 500): string {
+export function getContentPreview(
+  text: string,
+  maxLength: number = CONTENT_LIMITS.CONTENT_PREVIEW_DEFAULT
+): string {
   const cleaned = cleanText(text, maxLength);
   return cleaned.length === maxLength ? cleaned + '...' : cleaned;
 }
@@ -33,7 +44,7 @@ export function validateUrl(url: string): boolean {
 }
 
 export function sanitizeQuery(query: string): string {
-  return query.trim().substring(0, 1000); // Limit query length
+  return query.trim().substring(0, CONTENT_LIMITS.QUERY_MAX_LENGTH); // Limit query length
 }
 
 export function getRandomUserAgent(): string {
@@ -58,4 +69,4 @@ export function isPdfUrl(url: string): boolean {
     // If URL parsing fails, check the raw string as fallback
     return url.toLowerCase().endsWith('.pdf');
   }
-} 
+}
