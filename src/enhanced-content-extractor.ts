@@ -8,6 +8,7 @@ import {
   getContentPreview,
   generateTimestamp,
   isPdfUrl,
+  delay,
 } from './utils.js';
 import { getBrowserPool, BrowserPool } from './browser-pool.js';
 import {
@@ -23,6 +24,7 @@ export class EnhancedContentExtractor {
   private readonly maxContentLength: number;
   private browserPool: BrowserPool;
   private fallbackThreshold: number;
+  private readonly maxRetries: number;
 
   constructor() {
     this.defaultTimeout = parseInt(
@@ -30,13 +32,11 @@ export class EnhancedContentExtractor {
       10
     );
 
-    // Read MAX_CONTENT_LENGTH from environment variable, fallback to 500KB
     const envMaxLength = process.env.MAX_CONTENT_LENGTH;
     this.maxContentLength = envMaxLength
       ? parseInt(envMaxLength, 10)
       : CONTENT_LIMITS.MAX_DEFAULT;
 
-    // Validate the parsed value
     if (isNaN(this.maxContentLength) || this.maxContentLength < 0) {
       console.warn(
         `[EnhancedContentExtractor] Invalid MAX_CONTENT_LENGTH value: ${envMaxLength}, using default ${CONTENT_LIMITS.MAX_DEFAULT}`
@@ -51,8 +51,17 @@ export class EnhancedContentExtractor {
       10
     );
 
+    this.maxRetries = parseInt(
+      process.env.BROWSER_MAX_RETRIES || String(BROWSER.MAX_RETRIES),
+      10
+    );
+
+    if (isNaN(this.maxRetries) || this.maxRetries < 1) {
+      this.maxRetries = BROWSER.MAX_RETRIES;
+    }
+
     console.log(
-      `[EnhancedContentExtractor] Configuration: timeout=${this.defaultTimeout}, maxContentLength=${this.maxContentLength}, fallbackThreshold=${this.fallbackThreshold}`
+      `[EnhancedContentExtractor] Configuration: timeout=${this.defaultTimeout}ms, maxContentLength=${this.maxContentLength}, fallbackThreshold=${this.fallbackThreshold}, maxRetries=${this.maxRetries}`
     );
   }
 
@@ -86,8 +95,7 @@ export class EnhancedContentExtractor {
           return content;
         } catch (browserError) {
           console.error(
-            `[EnhancedContentExtractor] Browser extraction also failed:`,
-            browserError
+            `[EnhancedContentExtractor] Browser extraction also failed for ${url}: ${this.sanitizeError(browserError)}`
           );
           throw new Error(
             `Both axios and browser extraction failed for ${url}`
@@ -134,6 +142,35 @@ export class EnhancedContentExtractor {
   }
 
   private async extractWithBrowser(
+    options: ContentExtractionOptions
+  ): Promise<string> {
+    const { url } = options;
+    let lastError: Error | undefined;
+
+    for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+      try {
+        return await this.doExtractWithBrowser(options);
+      } catch (error) {
+        lastError = error as Error;
+
+        if (attempt < this.maxRetries && this.isRetryableError(error)) {
+          const retryDelay = TIMEOUTS.RETRY_DELAY * attempt;
+          console.log(
+            `[BrowserExtractor] Retry ${attempt}/${this.maxRetries} for ${url} after ${retryDelay}ms`
+          );
+          await delay(retryDelay);
+        } else if (attempt >= this.maxRetries) {
+          console.log(
+            `[BrowserExtractor] Max retries (${this.maxRetries}) reached for ${url}`
+          );
+        }
+      }
+    }
+
+    throw lastError;
+  }
+
+  private async doExtractWithBrowser(
     options: ContentExtractionOptions
   ): Promise<string> {
     const { url, timeout = this.defaultTimeout } = options;
@@ -314,10 +351,31 @@ export class EnhancedContentExtractor {
     } catch (error) {
       console.error(
         `[BrowserExtractor] Browser extraction failed for ${url}:`,
-        error
+        this.sanitizeError(error)
       );
       throw error;
     }
+  }
+
+  private isRetryableError(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+      return false;
+    }
+    const message = error.message.toLowerCase();
+    return (
+      message.includes('timeout') ||
+      message.includes('err_connection') ||
+      message.includes('err_aborted') ||
+      message.includes('net::')
+    );
+  }
+
+  private sanitizeError(error: unknown): string {
+    let message = error instanceof Error ? error.message : String(error);
+    if (process.env.NODE_ENV === 'production') {
+      message = message.replace(/Call log:\s*[\s\S]*$/m, '').trim();
+    }
+    return message;
   }
 
   /**
@@ -491,6 +549,17 @@ export class EnhancedContentExtractor {
     results: SearchResult[],
     targetCount: number = results.length
   ): Promise<SearchResult[]> {
+    const extractionTimeout = parseInt(
+      process.env.BROWSER_EXTRACTION_TIMEOUT_MS ||
+        String(TIMEOUTS.CONTENT_EXTRACTION),
+      10
+    );
+    const globalTimeout = parseInt(
+      process.env.BROWSER_GLOBAL_TIMEOUT_MS ||
+        String(BROWSER.EXTRACTION_TIMEOUT),
+      10
+    );
+
     console.log(
       `[EnhancedContentExtractor] Processing up to ${results.length} results to get ${targetCount} non-PDF results`
     );
@@ -503,7 +572,7 @@ export class EnhancedContentExtractor {
     ); // Process extra to account for failures
 
     console.log(
-      `[EnhancedContentExtractor] Processing ${resultsToProcess.length} non-PDF results concurrently`
+      `[EnhancedContentExtractor] Processing ${resultsToProcess.length} non-PDF results with timeout=${extractionTimeout}ms`
     );
 
     // Process results concurrently with timeout
@@ -513,13 +582,13 @@ export class EnhancedContentExtractor {
           // Use a race condition with timeout to prevent hanging
           const extractionPromise = this.extractContent({
             url: result.url,
-            timeout: TIMEOUTS.CONTENT_EXTRACTION,
+            timeout: extractionTimeout,
           });
 
           const timeoutPromise = new Promise<never>((_, reject) => {
             setTimeout(
               () => reject(new Error('Content extraction timeout')),
-              BROWSER.EXTRACTION_TIMEOUT
+              globalTimeout
             );
           });
 
@@ -542,7 +611,7 @@ export class EnhancedContentExtractor {
           };
         } catch (error) {
           console.log(
-            `[EnhancedContentExtractor] Failed to extract: ${result.url} - ${error instanceof Error ? error.message : 'Unknown error'}`
+            `[EnhancedContentExtractor] Failed to extract: ${result.url} - ${this.sanitizeError(error)}`
           );
           return {
             ...result,
@@ -576,7 +645,7 @@ export class EnhancedContentExtractor {
     ].slice(0, targetCount);
 
     console.log(
-      `[EnhancedContentExtractor] Completed processing ${resultsToProcess.length} results, extracted ${successfulResults.length} successful/${failedResults.length} failed`
+      `[EnhancedContentExtractor] Completed: ${successfulResults.length} successful, ${failedResults.length} failed`
     );
     return enhancedResults;
   }

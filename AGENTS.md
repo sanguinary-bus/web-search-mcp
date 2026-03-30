@@ -1,104 +1,63 @@
 # AGENTS.md - Web Search MCP Server
 
-## Project Overview
+TypeScript MCP server for web search with full page content extraction. Built with ESNext, strict TypeScript, Playwright, and cheerio.
 
-TypeScript MCP (Model Context Protocol) server for web search with full page content extraction. Built with ESNext modules, strict TypeScript, Playwright for browser automation, and cheerio for HTML parsing.
-
----
-
-## Build, Lint, and Test Commands
-
-### Installation & Build
+## Build/Lint/Test Commands
 
 ```bash
-npm install                 # Install dependencies
-npx playwright install      # Install Playwright browsers
-npm run build              # Compile TypeScript to dist/
+npm install && npx playwright install  # Install dependencies and browsers
+npm run build                         # Compile TypeScript to dist/
+npm run dev                           # Hot-reload with tsx watch
+npm start                             # Run compiled server from dist/
+npm run lint                          # Run ESLint
+npm run format                        # Format with Prettier
+
+# Testing (no framework - runs from dist/)
+npm run build && node tests/test-search.js          # All engines
+npm run build && node tests/test-bing.js           # Bing only
+npm run build && node tests/test-duckduckgo.js     # DuckDuckGo only
+npm run build && node tests/test-brave.js          # Brave only
+npm run build && node tests/test-all-engines.js    # All engines verbose
 ```
 
-### Development
+## Code Style
 
-```bash
-npm run dev                # Hot-reload with tsx watch
-npm start                 # Run compiled server from dist/
-```
+### TypeScript
 
-### Code Quality
-
-```bash
-npm run lint              # Run ESLint on src/**/*.ts
-npm run format            # Format all files with Prettier
-```
-
-### Testing
-
-```bash
-# Run test scripts directly (no test framework, uses dist/)
-node tests/test-search.js
-node tests/test-bing.js
-node tests/test-brave.js
-node tests/test-duckduckgo.js
-node tests/test-all-engines.js
-
-# For any test, first ensure dist/ is built
-npm run build && node tests/test-search.js
-```
-
----
-
-## Code Style Guidelines
-
-### TypeScript Configuration
-
-- **Target:** ES2022
-- **Module:** ESNext with Node resolution
-- **Strict mode:** Enabled (noImplicitAny, strictNullChecks, etc.)
-- **Module file extension:** Always use `.js` in imports (e.g., `'./utils.js'`)
+- **ES2022 + ESNext modules** | **Strict mode enabled**
+- **Always use `.js` extension in imports** (e.g., `'./utils.js'`)
 
 ### Imports
 
 ```typescript
-// Named imports with .js extension
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { SearchEngine } from './search-engine.js';
-import { SomeType, AnotherType } from './types.js';
-
-// Default imports
-import js from '@eslint/js';
-
-// Namespace imports
+import axios from 'axios';
 import * as cheerio from 'cheerio';
-import * as fs from 'fs';
-import * as path from 'path';
 ```
 
 ### Naming Conventions
 
-| Element         | Convention                       | Example                                             |
-| --------------- | -------------------------------- | --------------------------------------------------- |
-| Classes         | PascalCase                       | `class WebSearchMCPServer`                          |
-| Interfaces      | PascalCase                       | `interface SearchResult`                            |
-| Types           | PascalCase                       | `type RegisterToolFn`                               |
-| Variables       | camelCase                        | `const searchResults = []`                          |
-| Constants       | camelCase or SCREAMING_SNAKE     | `const maxRetries = 3`                              |
-| Private methods | camelCase with `private` keyword | `private setupTools(): void`                        |
-| File names      | kebab-case or camelCase          | `search-engine.ts`, `enhanced-content-extractor.ts` |
+| Element                   | Convention        | Example                      |
+| ------------------------- | ----------------- | ---------------------------- |
+| Classes/Interfaces/Types  | PascalCase        | `class WebSearchMCPServer`   |
+| Variables                 | camelCase         | `const searchResults = []`   |
+| Constants (const objects) | UPPER_SNAKE_CASE  | `CONTENT_LIMITS.MAX`         |
+| Private methods           | `private` keyword | `private setupTools(): void` |
 
 ### Type Annotations
 
-- **Prefer explicit types** over `any` (ESLint warns on `any`)
-- **Avoid non-null assertions** (`!`) when possible (ESLint warns on `!`)
-- **Use Zod** for runtime validation of external inputs
-- **Union types** for discriminated unions:
+- **Prefer explicit types** over `any` (warn) or `!` assertions
+- **Use Zod** for external input validation
+- **Discriminated unions** for status:
   ```typescript
   fetchStatus: 'success' | 'error' | 'timeout';
   ```
+- **Use `as` only for MCP SDK workarounds**
 
 ### Error Handling
 
 ```typescript
-// Type narrowing for errors
 try {
   // operation
 } catch (error) {
@@ -109,124 +68,98 @@ try {
     `Failed: ${error instanceof Error ? error.message : 'Unknown error'}`
   );
 }
-
-// Type-safe error checking
-error instanceof Error ? error.message : 'Unknown error';
 ```
 
 ### Async/Await
 
 - Use `async/await` over raw Promises
-- Always handle promise rejections with try/catch
+- Handle rejections with try/catch
 - Use `Promise.all()` for parallel operations
-- Cleanup in `finally` blocks:
-  ```typescript
-  finally {
-    if (browser) {
-      await browser.close();
-    }
-  }
-  ```
+- Cleanup in `finally` blocks
 
-### Formatting (Prettier)
+### JSDoc Comments
 
-```json
-{
-  "semi": true,
-  "trailingComma": "es5",
-  "singleQuote": true,
-  "printWidth": 80,
-  "tabWidth": 2,
-  "useTabs": false,
-  "bracketSpacing": true,
-  "arrowParens": "avoid"
-}
+Use JSDoc for public methods:
+
+```typescript
+/**
+ * Categorizes failure reasons from failed content extractions.
+ * @param failedResults - Array of SearchResult with fetchStatus='error'
+ * @returns Array of categorized failure reasons with counts
+ */
 ```
-
-### ESLint Rules
-
-- `@typescript-eslint/no-unused-vars`: `error`
-- `@typescript-eslint/no-explicit-any`: `warn`
-- `prefer-const`: `error`
-- `no-var`: `error`
-- `no-console`: `warn`
 
 ### Logging
 
-- Use `[ClassName]` prefix for log messages: `console.log('[SearchEngine] Starting search...')`
-- Use `console.error` for errors and warnings
-- Consider KB format for large data: `${(html.length / 1024).toFixed(1)}KB`
+- Use `[ClassName]` prefix: `console.log('[SearchEngine] Starting...')`
+- Use `console.error` for errors
+- Large data in KB: `` `${(html.length / 1024).toFixed(1)}KB` ``
+
+### Prettier (`.prettierrc`)
+
+`{ "semi": true, "trailingComma": "es5", "singleQuote": true, "printWidth": 80, "tabWidth": 2, "useTabs": false }`
+
+### ESLint
+
+- `no-unused-vars`: error | `no-explicit-any`: warn | `prefer-const`: error
+- `no-var`: error | `no-console`: warn
 
 ### Graceful Shutdown
 
-- Handle `SIGINT` and `SIGTERM` signals
-- Close browser pools and connections in shutdown handlers
-- Don't exit on unhandled rejections (log only)
-
-### Module Pattern
-
-```typescript
-export class ClassName {
-  private property: Type;
-
-  constructor() {
-    this.property = initialValue;
-  }
-
-  public async method(): Promise<ReturnType> {
-    // implementation
-  }
-
-  private helperMethod(): void {
-    // implementation
-  }
-}
-```
-
----
+Handle `SIGINT`/`SIGTERM`, close browser pools, don't exit on unhandled rejections.
 
 ## File Structure
 
 ```
 src/
-├── index.ts           # Main entry point, MCP server setup
-├── search-engine.ts   # Search engine implementations
-├── content-extractor.ts
+├── index.ts              # MCP server setup, tool registration
+├── search-engine.ts      # Multi-engine search orchestration
+├── content-extractor.ts  # HTTP-based extraction
 ├── enhanced-content-extractor.ts
-├── browser-pool.ts
+├── browser-pool.ts       # Playwright browser management
 ├── rate-limiter.ts
-├── logger.ts
-├── utils.ts
-└── types.ts           # Shared interfaces and types
-
-dist/                  # Compiled output (don't edit)
-tests/                 # Standalone test scripts
+├── logger.ts             # File logging to /tmp/
+├── utils.ts              # Helpers
+├── constants.ts           # Magic numbers as const objects
+└── types.ts               # Interfaces and types
+dist/                     # Compiled output (do not edit)
+tests/                    # Standalone test scripts (*.js)
 ```
 
----
+## Common Patterns
 
-## Common Tasks
-
-### Adding a new MCP tool
+### Adding an MCP Tool
 
 1. Define input schema using Zod in `registerTool()` call
-2. Create handler function with proper error handling
-3. Register tool using `(this.server.registerTool as RegisterToolFn)()` pattern
+2. Create async handler with error handling
+3. Register: `(this.server.registerTool as RegisterToolFn)('tool-name', config, handler)`
 4. Return `{ content: [{ type: 'text' as const, text: responseText }] }`
 
-### Adding a new search engine
+### Adding a Search Engine
 
-1. Create private async method in `SearchEngine` class
-2. Return `Promise<SearchResult[]>`
-3. Add to the `approaches` array in `search()` method
-4. Implement HTML parsing with cheerio
+1. Create private async method in `SearchEngine` class, return `Promise<SearchResult[]>`
+2. Add to `approaches` array in `search()` method
+3. Implement HTML parsing with cheerio
 
-### Environment Variables
+### Constants
 
-| Variable             | Purpose                                     |
-| -------------------- | ------------------------------------------- |
-| `MAX_CONTENT_LENGTH` | Max characters per result (default: 500000) |
-| `DEFAULT_TIMEOUT`    | Request timeout in ms (default: 6000)       |
-| `MAX_BROWSERS`       | Max browser instances (default: 3)          |
-| `DEBUG_BING_SEARCH`  | Enable Bing debug logs                      |
-| `DEBUG_HTML_PARSING` | Enable HTML parsing logs                    |
+All magic numbers go in `src/constants.ts` as const objects:
+
+```typescript
+export const TIMEOUTS = { DEFAULT: 10000, CONTENT_EXTRACTION: 12000 } as const;
+```
+
+## Environment Variables
+
+| Variable                        | Purpose                                | Default |
+| ------------------------------- | -------------------------------------- | ------- |
+| `MAX_CONTENT_LENGTH`            | Max chars per result                   | 500000  |
+| `DEFAULT_TIMEOUT`               | Request timeout (ms)                   | 12000   |
+| `MAX_BROWSERS`                  | Max browser instances                  | 3       |
+| `ENABLE_RELEVANCE_CHECKING`     | Enable quality scoring                 | true    |
+| `RELEVANCE_THRESHOLD`           | Quality threshold (0.0-1.0)            | 0.3     |
+| `FORCE_MULTI_ENGINE_SEARCH`     | Try all engines                        | false   |
+| `BROWSER_MAX_RETRIES`           | Retry attempts on timeout              | 2       |
+| `BROWSER_EXTRACTION_TIMEOUT_MS` | Per-page extraction timeout            | 12000   |
+| `BROWSER_GLOBAL_TIMEOUT_MS`     | Global extraction timeout              | 12000   |
+| `NODE_ENV`                      | Set to `production` to strip call logs | -       |
