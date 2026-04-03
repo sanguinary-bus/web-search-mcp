@@ -43,8 +43,11 @@ export async function tryDuckDuckGoSearch(
     console.log(`[DuckDuckGoEngine] Parsed ${results.length} results`);
 
     return results;
-  } catch {
-    console.error(`[DuckDuckGoEngine] DuckDuckGo search failed`);
+  } catch (error) {
+    console.error(
+      `[DuckDuckGoEngine] DuckDuckGo search failed`,
+      error instanceof Error ? error.message : String(error)
+    );
     throw new Error('DuckDuckGo search failed');
   }
 }

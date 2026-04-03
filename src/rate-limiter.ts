@@ -23,7 +23,9 @@ export class RateLimiter {
     // Check rate limit
     if (this.requestCount >= this.maxRequestsPerMinute) {
       const waitTime = this.resetIntervalMs - (now - this.lastResetTime);
-      throw new Error(`Rate limit exceeded. Please wait ${Math.ceil(waitTime / 1000)} seconds.`);
+      throw new Error(
+        `Rate limit exceeded. Please wait ${Math.ceil(waitTime / 1000)} seconds.`
+      );
     }
 
     // Execute with concurrency limit
@@ -35,11 +37,15 @@ export class RateLimiter {
     return result;
   }
 
-  getStatus(): { requestCount: number; maxRequests: number; resetTime: number } {
+  getStatus(): {
+    requestCount: number;
+    maxRequests: number;
+    resetTime: number;
+  } {
     return {
       requestCount: this.requestCount,
       maxRequests: this.maxRequestsPerMinute,
       resetTime: this.lastResetTime + this.resetIntervalMs,
     };
   }
-} 
+}

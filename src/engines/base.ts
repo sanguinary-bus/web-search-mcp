@@ -19,7 +19,7 @@ export function debugSaveHtml(
     const sanitizedQuery = query
       .substring(0, SEARCH.QUERY_DEBUG_TRUNCATE)
       .replace(/[^a-zA-Z0-9]/g, '_');
-    const filename = `${timestamp}_${engineName}_${sanitizedQuery}.html`;
+    const filename = `${engineName}_${sanitizedQuery}_${timestamp}.html`;
     const filepath = path.join(debugDir, filename);
 
     fs.writeFileSync(filepath, html, 'utf-8');

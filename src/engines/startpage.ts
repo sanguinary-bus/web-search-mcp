@@ -10,6 +10,8 @@ import { generateTimestamp } from '../utils.js';
 import { TIMEOUTS } from '../constants.js';
 import { debugSaveHtml } from './base.js';
 
+const DEBUG_STARTPAGE = process.env.DEBUG_STARTPAGE_SEARCH === 'true';
+
 export async function tryStartpageSearch(
   query: string,
   numResults: number,
@@ -108,12 +110,22 @@ export function parseStartpageResults(
   const results: SearchResult[] = [];
   const timestamp = generateTimestamp();
 
-  const resultSelectors = [
-    '.w-gl__result',
-    '.result',
-    'article',
-    '[data-testid="result"]',
-  ];
+  const pageTitle = $('title').text();
+  if (DEBUG_STARTPAGE) {
+    console.error(`[StartpageEngine] Page title: "${pageTitle}"`);
+  }
+
+  if (
+    pageTitle.includes('Access Denied') ||
+    pageTitle.includes('blocked') ||
+    pageTitle.includes('captcha') ||
+    $('.captcha').length > 0 ||
+    html.includes('class="captcha"')
+  ) {
+    console.error(`[StartpageEngine] ERROR - Bot detection detected`);
+  }
+
+  const resultSelectors = ['.result', '.w-gl__result'];
 
   for (const selector of resultSelectors) {
     if (results.length >= maxResults) break;
@@ -129,27 +141,25 @@ export function parseStartpageResults(
       if (results.length >= maxResults) return false;
       const $element = $(element);
 
-      const titleSelectors = ['h3 a', 'h2 a', '.title a'];
       let title = '';
       let url = '';
-
-      for (const titleSelector of titleSelectors) {
-        const $titleElement = $element.find(titleSelector).first();
-        if ($titleElement.length) {
-          title = $titleElement.text().trim();
-          url = $titleElement.attr('href') || '';
-          if (title && url) break;
-        }
-      }
-
-      const descSelectors = ['.desc', '.snippet', '.result-description', 'p'];
       let description = '';
-      for (const descSelector of descSelectors) {
-        const $descElement = $element.find(descSelector).first();
-        if ($descElement.length) {
-          description = $descElement.text().trim();
-          if (description.length > 10) break;
-        }
+
+      if (selector === '.result') {
+        const $titleElement = $element.find('.wgl-site-title').first();
+        title = $titleElement.text().trim();
+        const $urlElement = $element.find('a[href^="http"]').first();
+        url = $urlElement.attr('href') || '';
+        const $descElement = $element.find('.description').first();
+        description = $descElement.text().trim();
+      } else {
+        const $titleElement = $element.find('h3 a, h2 a, .title a').first();
+        title = $titleElement.text().trim();
+        url = $titleElement.attr('href') || '';
+        const $descElement = $element
+          .find('.desc, .snippet, .result-description, p')
+          .first();
+        description = $descElement.text().trim();
       }
 
       if (title && url) {

@@ -376,7 +376,9 @@ export function parseBingResults(
   if (
     pageTitle.includes('Access Denied') ||
     pageTitle.includes('blocked') ||
-    pageTitle.includes('captcha')
+    pageTitle.includes('captcha') ||
+    $('.captcha').length > 0 ||
+    html.includes('class="captcha"')
   ) {
     console.error(`[BingEngine] ERROR - Bot detection detected`);
   }

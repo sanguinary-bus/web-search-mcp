@@ -9,9 +9,7 @@ Add this to your GOOSE configuration file (usually `~/.config/goose/mcp-hermit/c
   "mcpServers": {
     "web-search-mcp": {
       "command": "node",
-      "args": [
-        "/mnt/media2/DEV2/web-search-mcp/dist/index.js"
-      ],
+      "args": ["/mnt/media2/DEV2/web-search-mcp/dist/index.js"],
       "env": {
         "DEBUG_SAVE_HTML": "true",
         "DEBUG_HTML_PARSING": "true",
@@ -54,20 +52,23 @@ Add this to your GOOSE configuration file (usually `~/.config/goose/mcp-hermit/c
    - Look for "(1/7)" in logs instead of "(1/7)"
 
 3. **Run test searches:**
+
    ```
    search the web for "rust programming"
    ```
 
 4. **Check debug files:**
+
    ```bash
    ls -lh /mnt/media2/DEV2/web-search-mcp/logs/html-debug/
    ```
 
 5. **Inspect HTML:**
+
    ```bash
    # View a saved HTML file
    cat logs/html-debug/2026-*_Bing_rust_programming.html | head -100
-   
+
    # Check file sizes
    du -h logs/html-debug/*.html
    ```
@@ -81,7 +82,7 @@ ls -1 logs/html-debug/ | wc -l
 # Find CAPTCHA pages
 grep -l "captcha\|Captcha\|CAPTCHA" logs/html-debug/*.html
 
-# Find rate limit pages  
+# Find rate limit pages
 grep -l "rate limit\|slow down\|202" logs/html-debug/*.html
 
 # Check which engines succeeded

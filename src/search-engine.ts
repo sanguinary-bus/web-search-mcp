@@ -64,19 +64,19 @@ export class SearchEngine {
 
       // Search approaches - ordered by preference
       const approaches = [
-        { method: runMojeekSearch, name: 'Browser Mojeek' },
-        { method: tryYahooSearch, name: 'Browser Yahoo' },
         { method: tryEcosiaSearch, name: 'Browser Ecosia' },
-        { method: trySearxSearch, name: 'Browser Searx' },
-        { method: trySwisscowsSearch, name: 'Browser Swisscows' },
+        { method: runMojeekSearch, name: 'Browser Mojeek' },
         { method: tryHttpBingSearch, name: 'HTTP Bing' },
         { method: tryHttpStartpageSearch, name: 'HTTP Startpage' },
-        { method: tryHttpQwantSearch, name: 'HTTP Qwant' },
-        { method: tryDuckDuckGoSearch, name: 'HTTP DuckDuckGo' },
-        { method: tryBrowserBingSearch, name: 'Browser Bing' },
         { method: tryBrowserBraveSearch, name: 'Browser Brave' },
+        { method: tryYahooSearch, name: 'Browser Yahoo' },
+        { method: tryBrowserBingSearch, name: 'Browser Bing' },
         { method: tryStartpageSearch, name: 'Browser Startpage' },
-        { method: tryQwantSearch, name: 'Browser Qwant' },
+        // { method: trySearxSearch, name: 'Browser Searx' },
+        // { method: trySwisscowsSearch, name: 'Browser Swisscows' },
+        // { method: tryHttpQwantSearch, name: 'HTTP Qwant' },
+        // { method: tryDuckDuckGoSearch, name: 'HTTP DuckDuckGo' },
+        // { method: tryQwantSearch, name: 'Browser Qwant' },
       ];
 
       let bestResults: SearchResult[] = [];

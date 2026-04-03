@@ -6,7 +6,7 @@
 
 // Suppress stderr writes when stdout is closed
 const originalStderrWrite = process.stderr.write;
-process.stderr.write = function(chunk, encoding, callback) {
+process.stderr.write = function (chunk, encoding, callback) {
   if (!process.stdout || !process.stdout.writable) {
     if (typeof callback === 'function') callback();
     return true;
@@ -23,7 +23,7 @@ process.stderr.write = function(chunk, encoding, callback) {
 };
 
 // Register uncaughtException handler
-process.on('uncaughtException', (error) => {
+process.on('uncaughtException', error => {
   if (error.code === 'EPIPE' || error.errno === -32) {
     return; // Silently ignore EPIPE
   }
@@ -40,7 +40,7 @@ if (!process.stdout || !process.stdout.writable) {
 }
 
 // Now import and run the actual server
-import('./dist/index.js').catch((err) => {
+import('./dist/index.js').catch(err => {
   if (err.code !== 'EPIPE') {
     process.exit(1);
   }

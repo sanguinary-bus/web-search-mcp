@@ -121,19 +121,28 @@ export function parseEcosiaResults(
     const pageData = JSON.parse(jsonContent);
     const mainlineResults = pageData?.initialState?.main?.mainlineResults;
 
-    if (!Array.isArray(mainlineResults) || mainlineResults.length === 0) {
-      console.log('[EcosiaEngine] No mainlineResults array found in JSON');
+    if (
+      !mainlineResults ||
+      !Array.isArray(mainlineResults) ||
+      mainlineResults.length === 0
+    ) {
+      console.log('[EcosiaEngine] No mainlineResults found in JSON');
       return results;
     }
 
-    for (const item of mainlineResults) {
+    const resultsArray = mainlineResults[0];
+    if (!Array.isArray(resultsArray)) {
+      console.log('[EcosiaEngine] mainlineResults is not an array');
+      return results;
+    }
+
+    for (const item of resultsArray) {
       if (results.length >= maxResults) break;
 
-      if (item?.attributes?.url && item?.attributes?.title) {
-        const url = item.attributes.url;
-        const title = item.attributes.title;
-        const description =
-          item.attributes.description || 'No description available';
+      if (item?.url && item?.title && item.type === 'web') {
+        const url = item.url;
+        const title = item.title;
+        const description = item.description || 'No description available';
 
         if (url && title && url.startsWith('http')) {
           if (debug)

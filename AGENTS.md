@@ -5,26 +5,42 @@ TypeScript MCP server for web search with full page content extraction. Built wi
 ## Build/Lint/Test Commands
 
 ```bash
-npm install && npx playwright install  # Install dependencies and browsers
-npm run build                         # Compile TypeScript to dist/
-npm run dev                           # Hot-reload with tsx watch
-npm start                             # Run compiled server from dist/
-npm run lint                          # Run ESLint
-npm run format                        # Format with Prettier
+# Install dependencies and Playwright browsers
+npm install && npx playwright install
 
-# Testing (no framework - runs from dist/)
-npm run build && node tests/test-search.js          # All engines
-npm run build && node tests/test-bing.js           # Bing only
-npm run build && node tests/test-duckduckgo.js     # DuckDuckGo only
-npm run build && node tests/test-brave.js          # Brave only
-npm run build && node tests/test-all-engines.js    # All engines verbose
+# Build TypeScript to dist/
+npm run build
+
+# Development with hot-reload
+npm run dev
+
+# Run compiled server
+npm start
+
+# Lint and format
+npm run lint    # ESLint with TypeScript recommended rules
+npm run format  # Prettier formatting
+
+# Run tests with Vitest
+npm run test              # All tests
+npm run test:watch        # Watch mode
+npm run test:unit         # Unit tests only (parser tests)
+npm run test:integration  # Integration tests (SearchEngine)
+npm run test:e2e          # E2E tests (real browser tests for all 13 engines)
+npm run test:coverage     # Tests with coverage report
+
+# Run a single test file
+npx vitest run tests/unit/parsers/duckduckgo.test.ts
+
+# Run tests matching a pattern
+npx vitest run -t "parses results"
 ```
 
 ## Code Style
 
-### TypeScript
+### TypeScript Configuration
 
-- **ES2022 + ESNext modules** | **Strict mode enabled**
+- ES2022 target, ESNext modules, strict mode enabled
 - **Always use `.js` extension in imports** (e.g., `'./utils.js'`)
 
 ### Imports
@@ -49,10 +65,7 @@ import * as cheerio from 'cheerio';
 
 - **Prefer explicit types** over `any` (warn) or `!` assertions
 - **Use Zod** for external input validation
-- **Discriminated unions** for status:
-  ```typescript
-  fetchStatus: 'success' | 'error' | 'timeout';
-  ```
+- **Discriminated unions** for status: `fetchStatus: 'success' | 'error' | 'timeout'`
 - **Use `as` only for MCP SDK workarounds**
 
 ### Error Handling
@@ -95,35 +108,26 @@ Use JSDoc for public methods:
 - Use `console.error` for errors
 - Large data in KB: `` `${(html.length / 1024).toFixed(1)}KB` ``
 
-### Prettier (`.prettierrc`)
+### Formatting
 
-`{ "semi": true, "trailingComma": "es5", "singleQuote": true, "printWidth": 80, "tabWidth": 2, "useTabs": false }`
-
-### ESLint
-
-- `no-unused-vars`: error | `no-explicit-any`: warn | `prefer-const`: error
-- `no-var`: error | `no-console`: warn
-
-### Graceful Shutdown
-
-Handle `SIGINT`/`SIGTERM`, close browser pools, don't exit on unhandled rejections.
+Prettier: semi, singleQuote, printWidth 80, tabWidth 2, trailingComma es5.
 
 ## File Structure
 
 ```
 src/
-├── index.ts              # MCP server setup, tool registration
-├── search-engine.ts      # Multi-engine search orchestration
-├── content-extractor.ts  # HTTP-based extraction
+├── index.ts                 # MCP server setup, tool registration
+├── search-engine.ts         # Multi-engine search orchestration
+├── content-extractor.ts     # HTTP-based extraction
 ├── enhanced-content-extractor.ts
-├── browser-pool.ts       # Playwright browser management
-├── rate-limiter.ts
-├── logger.ts             # File logging to /tmp/
-├── utils.ts              # Helpers
-├── constants.ts           # Magic numbers as const objects
-└── types.ts               # Interfaces and types
-dist/                     # Compiled output (do not edit)
-tests/                    # Standalone test scripts (*.js)
+├── browser-pool.ts          # Playwright browser management
+├── rate-limiter.ts, logger.ts, utils.ts, constants.ts, types.ts
+└── engines/                 # 13 search engine implementations
+dist/                        # Compiled output (do not edit)
+tests/
+├── fixtures/               # HTML fixtures for parser unit tests
+├── unit/parsers/           # Parser tests for all 13 engines
+└── integration/e2e/        # E2E browser tests
 ```
 
 ## Common Patterns
@@ -158,8 +162,9 @@ export const TIMEOUTS = { DEFAULT: 10000, CONTENT_EXTRACTION: 12000 } as const;
 | `MAX_BROWSERS`                  | Max browser instances                  | 3       |
 | `ENABLE_RELEVANCE_CHECKING`     | Enable quality scoring                 | true    |
 | `RELEVANCE_THRESHOLD`           | Quality threshold (0.0-1.0)            | 0.3     |
-| `FORCE_MULTI_ENGINE_SEARCH`     | Try all engines                        | false   |
-| `BROWSER_MAX_RETRIES`           | Retry attempts on timeout              | 2       |
 | `BROWSER_EXTRACTION_TIMEOUT_MS` | Per-page extraction timeout            | 12000   |
-| `BROWSER_GLOBAL_TIMEOUT_MS`     | Global extraction timeout              | 12000   |
 | `NODE_ENV`                      | Set to `production` to strip call logs | -       |
+
+## Graceful Shutdown
+
+Handle `SIGINT`/`SIGTERM`, close browser pools, don't exit on unhandled rejections.

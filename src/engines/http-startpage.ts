@@ -9,6 +9,8 @@ import type { SearchResult } from '../types.js';
 import { generateTimestamp } from '../utils.js';
 import { debugSaveHtml } from './base.js';
 
+const DEBUG_HTTP_STARTPAGE = process.env.DEBUG_HTTP_STARTPAGE_SEARCH === 'true';
+
 export async function tryHttpStartpageSearch(
   query: string,
   numResults: number,
@@ -64,13 +66,22 @@ export function parseHttpStartpageResults(
   const results: SearchResult[] = [];
   const timestamp = generateTimestamp();
 
-  // Startpage result selectors
-  const resultSelectors = [
-    '.result',
-    '.search-result',
-    '.partial_entry',
-    '[class*="result"]',
-  ];
+  const pageTitle = $('title').text();
+  if (DEBUG_HTTP_STARTPAGE) {
+    console.error(`[HttpStartpageEngine] Page title: "${pageTitle}"`);
+  }
+
+  if (
+    pageTitle.includes('Access Denied') ||
+    pageTitle.includes('blocked') ||
+    pageTitle.includes('captcha') ||
+    $('.captcha').length > 0 ||
+    html.includes('class="captcha"')
+  ) {
+    console.error(`[HttpStartpageEngine] ERROR - Bot detection detected`);
+  }
+
+  const resultSelectors = ['.result', '.w-gl__result'];
 
   for (const selector of resultSelectors) {
     if (results.length >= maxResults) break;
@@ -82,30 +93,46 @@ export function parseHttpStartpageResults(
       if (results.length >= maxResults) return false;
 
       const $element = $(element);
-      const $titleElement = $element.find('h3 a, h2 a, a.title');
-      const title = $titleElement.text().trim();
-      const url = $titleElement.attr('href');
 
-      const descSelectors = [
-        '.desc, .snippet',
-        '.result-description',
-        '.text',
-        'p',
-      ];
+      let title = '';
+      let url = '';
       let description = '';
-      for (const descSelector of descSelectors) {
-        const $descElement = $element.find(descSelector).first();
-        if ($descElement.length) {
-          description = $descElement.text().trim();
-          if (description.length > 10) break;
+
+      if (selector === '.result') {
+        const titleSelectors = ['.wgl-site-title', 'h3 a', 'h2 a', 'a.title'];
+        for (const ts of titleSelectors) {
+          const $titleElement = $element.find(ts).first();
+          if ($titleElement.length) {
+            title = $titleElement.text().trim();
+            if (ts.startsWith('.')) {
+              const $urlElement = $element.find('a[href^="http"]').first();
+              url = $urlElement.attr('href') || '';
+            } else {
+              url = $titleElement.attr('href') || '';
+            }
+            if (title && url) break;
+          }
         }
+        const $descElement = $element.find('.description, .desc').first();
+        description = $descElement.text().trim();
+      } else {
+        const $titleElement = $element.find('h3 a, h2 a, a.title').first();
+        title = $titleElement.text().trim();
+        url = $titleElement.attr('href') || '';
+        const $descElement = $element
+          .find('.desc, .snippet, .result-description, p')
+          .first();
+        description = $descElement.text().trim();
       }
 
       if (title && url && (url.startsWith('http') || url.startsWith('/'))) {
         console.log(`[HttpStartpageEngine] Found: "${title}" -> "${url}"`);
+        const cleanUrl = url.startsWith('/')
+          ? `https://www.startpage.com${url}`
+          : url;
         results.push({
           title,
-          url: url.startsWith('/') ? `https://www.startpage.com${url}` : url,
+          url: cleanUrl,
           description: description || 'No description available',
           fullContent: '',
           contentPreview: '',
