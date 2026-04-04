@@ -6,7 +6,7 @@
 import * as cheerio from 'cheerio';
 import type { Browser } from 'playwright';
 import type { SearchResult } from '../types.js';
-import { generateTimestamp } from '../utils.js';
+import { generateTimestamp, getResultType } from '../utils.js';
 import { TIMEOUTS } from '../constants.js';
 import { debugSaveHtml } from './base.js';
 
@@ -156,6 +156,7 @@ export function parseEcosiaResults(
             wordCount: 0,
             timestamp,
             fetchStatus: 'success',
+            type: getResultType(url),
           });
         }
       }

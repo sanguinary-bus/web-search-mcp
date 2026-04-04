@@ -8,6 +8,7 @@ export interface SearchResult {
   timestamp: string;
   fetchStatus: 'success' | 'error' | 'timeout';
   error?: string;
+  type?: 'pdf' | 'html';
 }
 
 export interface SearchResponse {

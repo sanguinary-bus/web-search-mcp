@@ -6,7 +6,7 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import type { SearchResult } from '../types.js';
-import { generateTimestamp } from '../utils.js';
+import { generateTimestamp, getResultType } from '../utils.js';
 import { debugSaveHtml } from './base.js';
 
 export async function tryHttpQwantSearch(
@@ -117,6 +117,7 @@ export function parseHttpQwantResults(
               wordCount: 0,
               timestamp,
               fetchStatus: 'success',
+              type: getResultType(item.url),
             });
           }
         }

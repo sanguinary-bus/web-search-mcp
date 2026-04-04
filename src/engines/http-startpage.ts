@@ -6,7 +6,7 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import type { SearchResult } from '../types.js';
-import { generateTimestamp } from '../utils.js';
+import { generateTimestamp, getResultType } from '../utils.js';
 import { debugSaveHtml } from './base.js';
 
 const DEBUG_HTTP_STARTPAGE = process.env.DEBUG_HTTP_STARTPAGE_SEARCH === 'true';
@@ -139,6 +139,7 @@ export function parseHttpStartpageResults(
           wordCount: 0,
           timestamp,
           fetchStatus: 'success',
+          type: getResultType(cleanUrl),
         });
       }
     });

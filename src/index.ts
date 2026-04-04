@@ -74,7 +74,7 @@ class WebSearchMCPServer {
             typeof (args as Record<string, unknown>).limit === 'string') ||
             ('includeContent' in args &&
               typeof (args as Record<string, unknown>).includeContent ===
-                'string'));
+              'string'));
 
         // Detect models that handle large responses well (Qwen, Gemma, recent Deepseek)
         const isLikelyRobustModel =
@@ -133,7 +133,8 @@ class WebSearchMCPServer {
         const maxLength = validatedArgs.maxContentLength;
 
         result.results.forEach((searchResult, idx) => {
-          responseText += `**${idx + 1}. ${searchResult.title}**\n`;
+          const resultType = searchResult.type === 'pdf' ? ' (PDF)' : '';
+          responseText += `**${idx + 1}. ${searchResult.title}**${resultType}\n`;
           responseText += `URL: ${searchResult.url}\n`;
           responseText += `Description: ${searchResult.description}\n`;
 
@@ -331,7 +332,6 @@ class WebSearchMCPServer {
           'Extract and return the full content from a single web page URL. This tool follows a provided URL and extracts the main page content. Useful for getting detailed content from a specific webpage without performing a search.',
         inputSchema: {
           url: z
-            .string()
             .url()
             .describe('The URL of the web page to extract content from'),
           maxContentLength: z
@@ -521,9 +521,9 @@ class WebSearchMCPServer {
       // Extract content from each result if requested, with target count
       const enhancedResults = includeContent
         ? await this.contentExtractor.extractContentForResults(
-            searchResults,
-            limit
-          )
+          searchResults,
+          limit
+        )
         : searchResults.slice(0, limit); // If not extracting content, just take the first 'limit' results
 
       // Log extraction summary with failure reasons and generate combined status

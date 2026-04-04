@@ -46,11 +46,7 @@ export {
 export { tryHttpQwantSearch, parseHttpQwantResults } from './http-qwant.js';
 
 // Browser-based engines
-export {
-  runMojeekSearch,
-  parseMojeekResults,
-  tryMojeekSearch,
-} from './mojeek.js';
+export { tryMojeekSearch, parseMojeekResults } from './mojeek.js';
 export { tryYahooSearch, parseYahooResults, cleanSearchUrl } from './yahoo.js';
 export { tryStartpageSearch, parseStartpageResults } from './startpage.js';
 export { tryQwantSearch, parseQwantResults } from './qwant.js';

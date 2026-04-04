@@ -11,18 +11,18 @@ import { TIMEOUTS, QUALITY, SEARCH } from './constants.js';
 // Import all engine functions
 import {
   // HTTP-based engines
-  tryDuckDuckGoSearch,
+  // tryDuckDuckGoSearch,
   tryHttpBingSearch,
   tryHttpStartpageSearch,
-  tryHttpQwantSearch,
+  // tryHttpQwantSearch,
   // Browser-based engines
-  runMojeekSearch,
+  tryMojeekSearch,
   tryYahooSearch,
   tryStartpageSearch,
-  tryQwantSearch,
+  // tryQwantSearch,
   tryEcosiaSearch,
-  trySearxSearch,
-  trySwisscowsSearch,
+  // trySearxSearch,
+  // trySwisscowsSearch,
   tryBrowserBraveSearch,
   tryBrowserBingSearch,
   // Common utilities
@@ -64,19 +64,19 @@ export class SearchEngine {
 
       // Search approaches - ordered by preference
       const approaches = [
-        { method: tryEcosiaSearch, name: 'Browser Ecosia' },
-        { method: runMojeekSearch, name: 'Browser Mojeek' },
-        { method: tryHttpBingSearch, name: 'HTTP Bing' },
         { method: tryHttpStartpageSearch, name: 'HTTP Startpage' },
-        { method: tryBrowserBraveSearch, name: 'Browser Brave' },
-        { method: tryYahooSearch, name: 'Browser Yahoo' },
-        { method: tryBrowserBingSearch, name: 'Browser Bing' },
-        { method: tryStartpageSearch, name: 'Browser Startpage' },
-        // { method: trySearxSearch, name: 'Browser Searx' },
-        // { method: trySwisscowsSearch, name: 'Browser Swisscows' },
+        { method: tryHttpBingSearch, name: 'HTTP Bing' },
         // { method: tryHttpQwantSearch, name: 'HTTP Qwant' },
         // { method: tryDuckDuckGoSearch, name: 'HTTP DuckDuckGo' },
+        { method: tryStartpageSearch, name: 'Browser Startpage' },
+        { method: tryBrowserBingSearch, name: 'Browser Bing' },
+        { method: tryEcosiaSearch, name: 'Browser Ecosia' },
+        { method: tryMojeekSearch, name: 'Browser Mojeek' },
+        { method: tryYahooSearch, name: 'Browser Yahoo' },
+        { method: tryBrowserBraveSearch, name: 'Browser Brave' },
+        // { method: trySearxSearch, name: 'Browser Searx' },
         // { method: tryQwantSearch, name: 'Browser Qwant' },
+        // { method: trySwisscowsSearch, name: 'Browser Swisscows' },
       ];
 
       let bestResults: SearchResult[] = [];

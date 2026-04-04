@@ -236,7 +236,7 @@ class WebSearchMCPServer {
       {
         description: 'Extract and return the full content from a single web page URL. This tool follows a provided URL and extracts the main page content. Useful for getting detailed content from a specific webpage without performing a search.',
         inputSchema: {
-          url: z.string().url().describe('The URL of the web page to extract content from'),
+          url: z.url().describe('The URL of the web page to extract content from'),
           maxContentLength: z.number().optional().describe('Maximum characters for the extracted content (0 = no limit, undefined = use default limit). Usually not needed - content length is automatically optimized.'),
         },
       },

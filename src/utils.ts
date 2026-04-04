@@ -70,3 +70,7 @@ export function isPdfUrl(url: string): boolean {
     return url.toLowerCase().endsWith('.pdf');
   }
 }
+
+export function getResultType(url: string): 'pdf' | 'html' {
+  return isPdfUrl(url) ? 'pdf' : 'html';
+}

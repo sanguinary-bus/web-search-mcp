@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { SearchResult } from '../types.js';
-import { generateTimestamp } from '../utils.js';
+import { generateTimestamp, getResultType } from '../utils.js';
 import { QUALITY, SEARCH } from '../constants.js';
 
 export function debugSaveHtml(
@@ -50,6 +50,45 @@ export function assessResultQuality(
 
   let totalScore = 0;
 
+  // Moved outside the loop for better performance
+  const irrelevantPatterns = [
+    /recipe/i,
+    /cooking/i,
+    /food/i,
+    /restaurant/i,
+    /menu/i,
+    /weather/i,
+    /temperature/i,
+    /forecast/i,
+    /shopping/i,
+    /sale/i,
+    /price/i,
+    /buy/i,
+    /store/i,
+    /movie/i,
+    /film/i,
+    /tv show/i,
+    /entertainment/i,
+    /sports/i,
+    /game/i,
+    /score/i,
+    /team/i,
+    /fashion/i,
+    /clothing/i,
+    /style/i,
+    /travel/i,
+    /hotel/i,
+    /flight/i,
+    /vacation/i,
+    /car/i,
+    /vehicle/i,
+    /automotive/i,
+    /real estate/i,
+    /property/i,
+    /house/i,
+    /apartment/i,
+  ];
+
   for (const result of results) {
     const combinedText = `${result.title} ${result.description}`.toLowerCase();
     let keywordMatches = 0;
@@ -62,48 +101,17 @@ export function assessResultQuality(
 
     const resultScore = Math.min(1.0, keywordMatches / queryWords.length);
 
-    const irrelevantPatterns = [
-      /recipe/i,
-      /cooking/i,
-      /food/i,
-      /restaurant/i,
-      /menu/i,
-      /weather/i,
-      /temperature/i,
-      /forecast/i,
-      /shopping/i,
-      /sale/i,
-      /price/i,
-      /buy/i,
-      /store/i,
-      /movie/i,
-      /film/i,
-      /tv show/i,
-      /entertainment/i,
-      /sports/i,
-      /game/i,
-      /score/i,
-      /team/i,
-      /fashion/i,
-      /clothing/i,
-      /style/i,
-      /travel/i,
-      /hotel/i,
-      /flight/i,
-      /vacation/i,
-      /car/i,
-      /vehicle/i,
-      /automotive/i,
-      /real estate/i,
-      /property/i,
-      /house/i,
-      /apartment/i,
-    ];
-
     let penalty = 0;
+
+    // 📄 Penalty for PDF results
+    if (result.type === 'pdf') {
+      penalty += QUALITY.PENALTY_PDF; // Adjust this value as needed
+    }
+
+    // 🚫 Penalty for irrelevant content
     for (const pattern of irrelevantPatterns) {
       if (pattern.test(combinedText)) {
-        penalty = 0.2;
+        penalty += QUALITY.PENALTY_IRRELEVANT;
         break;
       }
     }
@@ -128,5 +136,6 @@ export function createSearchResult(
     wordCount: 0,
     timestamp: generateTimestamp(),
     fetchStatus: 'success',
+    type: getResultType(url),
   };
 }

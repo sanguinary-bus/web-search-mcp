@@ -14,6 +14,8 @@ export const QUALITY = {
   EXCELLENT: 0.8,
   DEFAULT_SCORE: 0.5,
   PHRASE_MATCH_BONUS: 0.3,
+  PENALTY_PDF: 0.15,
+  PENALTY_IRRELEVANT: 0.2,
 } as const;
 
 export const CONTENT_LIMITS = {

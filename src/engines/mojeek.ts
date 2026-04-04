@@ -6,7 +6,7 @@
 import * as cheerio from 'cheerio';
 import type { Browser, Page } from 'playwright';
 import type { SearchResult } from '../types.js';
-import { generateTimestamp } from '../utils.js';
+import { generateTimestamp, getResultType } from '../utils.js';
 import { TIMEOUTS } from '../constants.js';
 import { debugSaveHtml } from './base.js';
 
@@ -18,7 +18,7 @@ export interface MojeekEngineConfig {
   timeout: number;
 }
 
-export async function tryMojeekSearch(
+async function tryMojeekSearchInternal(
   query: string,
   numResults: number,
   timeout: number
@@ -140,6 +140,7 @@ export function parseMojeekResults(
           wordCount: 0,
           timestamp,
           fetchStatus: 'success',
+          type: getResultType(url),
         });
       }
     });
@@ -157,7 +158,7 @@ export function parseMojeekResults(
   return results;
 }
 
-export async function runMojeekSearch(
+export async function tryMojeekSearch(
   query: string,
   numResults: number,
   timeout: number
@@ -166,7 +167,7 @@ export async function runMojeekSearch(
     let browser: Browser | null = null;
     try {
       console.log(`[MojeekEngine] Mojeek search attempt ${attempt}/2`);
-      const result = await tryMojeekSearch(query, numResults, timeout);
+      const result = await tryMojeekSearchInternal(query, numResults, timeout);
       browser = result.browser;
 
       const html = await result.page.content();

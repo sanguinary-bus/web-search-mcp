@@ -6,7 +6,7 @@
 import * as cheerio from 'cheerio';
 import type { Browser, Page } from 'playwright';
 import type { SearchResult } from '../types.js';
-import { generateTimestamp } from '../utils.js';
+import { generateTimestamp, getResultType } from '../utils.js';
 import { TIMEOUTS } from '../constants.js';
 import { debugSaveHtml } from './base.js';
 
@@ -446,15 +446,17 @@ export function parseBingResults(
 
       if (title && url && isValidSearchUrl(url)) {
         console.log(`[BingEngine] Found: "${title}" -> "${url}"`);
+        const cleanUrl = cleanBingUrl(url);
         results.push({
           title,
-          url: cleanBingUrl(url),
+          url: cleanUrl,
           description: snippet || 'No description available',
           fullContent: '',
           contentPreview: '',
           wordCount: 0,
           timestamp,
           fetchStatus: 'success',
+          type: getResultType(cleanUrl),
         });
         foundResults = true;
       }
